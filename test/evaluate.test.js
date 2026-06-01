@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 
 import { parse } from '../src/parser.js';
 import { evaluate } from '../src/evaluate.js';
+import { makeRootContext } from '../src/context.js';
 import { XPathTypeError } from '../src/errors.js';
 import { adapter, doc, element } from './helpers/dom.js';
 
 function evalExpr(expr) {
   const document = doc(element('root'));
-  const ctx = { node: document, position: 1, size: 1, adapter, resolver: null };
-  return evaluate(parse(expr), ctx);
+  return evaluate(parse(expr), makeRootContext(document, adapter));
 }
 
 test('arithmetic', () => {

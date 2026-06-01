@@ -111,9 +111,14 @@ export function matchesNodeTest(node, nodeTest, axis, adapter, resolver, html) {
 
 // Resolves a `@name` attribute name test to the matching attribute's string
 // value, or undefined if absent — via the adapter's getAttribute, without
-// enumerating the element's attributes into a node-set. Mirrors the attribute
-// rules of matchesNodeTest, including §6 HTML case-folding of unprefixed names.
-// `nameTest` must be a concrete name test (a non-`*` local name).
+// enumerating the element's attributes into a node-set. `nameTest` must be a
+// concrete name test (a non-`*` local name).
+//
+// For an HTML document this folds the *requested* unprefixed name to lower case
+// and asks getAttribute for an exact match. That equals matchesNodeTest's
+// case-insensitive comparison only because §6 holds: HTML attribute names are
+// lower-case keys. An adapter that reports isHtmlDocument(doc) === true MUST key
+// attributes case-insensitively (lower case), as capybara-simulated does.
 export function attributeValue(node, nameTest, adapter, resolver, html) {
   if (adapter.nodeType(node) !== ELEMENT) return undefined;
   let namespaceURI = null;

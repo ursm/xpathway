@@ -167,6 +167,23 @@ test('attribute comparison fast path matches node-set semantics', () => {
   assert.deepEqual(ns('//i[@n > 5]'), ['10']);
   assert.deepEqual(ns('//i[5 < @n]'), ['10']); // attribute on the right -> operator flips
   assert.deepEqual(ns('//i[@n <= 3]'), ['3']);
+
+  // HTML documents fold the attribute name (lower-case key); `@TYPE` matches `type`.
+  const input = element('input', { type: 'submit' }, [], { namespaceURI: XHTML_NS });
+  const htmlDoc = doc(element('form', {}, [input], { namespaceURI: XHTML_NS }), { isHtml: true });
+  const has = (expr) => evaluate(parse(expr), makeRootContext(htmlDoc, adapter)).ordered(adapter).length;
+  assert.equal(has("//input[@TYPE = 'submit']"), 1);
+  assert.equal(has("//input[@type = 'submit']"), 1);
+
+  // Prefixed attribute comparison resolves the namespace (xml is always bound).
+  const tagged = element('p', { 'xml:lang': 'en' });
+  const xmlDoc = doc(element('doc', {}, [tagged]));
+  assert.equal(evaluate(parse("//p[@xml:lang = 'en']"), makeRootContext(xmlDoc, adapter)).ordered(adapter).length, 1);
+
+  // node-set vs node-set (`@a = @b`) is NOT the literal fast path; it still works.
+  const pair = [element('e', { a: '1', b: '1' }), element('e', { a: '1', b: '2' })];
+  const pairDoc = doc(element('set', {}, pair));
+  assert.equal(evaluate(parse('//e[@a = @b]'), makeRootContext(pairDoc, adapter)).ordered(adapter).length, 1);
 });
 
 test('union in document order', () => {

@@ -95,6 +95,11 @@ name tests match `localName` ASCII case-insensitively, scoped to the XHTML
 namespace for elements (foreign SVG/MathML content keeps standard rules). In
 XML/XHTML documents, and for any prefixed test, matching is case-sensitive.
 
+An adapter that reports an HTML document must key attributes case-insensitively
+— in practice, store/look up HTML attribute names in lower case — so that
+`getAttribute(el, null, 'type')` finds an attribute written `TYPE`. The library
+relies on this for its `@name` fast path.
+
 ## Performance
 
 XPath 1.0 evaluates over an immutable tree, which this library exploits:
