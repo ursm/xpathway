@@ -1,15 +1,14 @@
 import {
-  ELEMENT, ATTRIBUTE, TEXT, PROCESSING_INSTRUCTION, COMMENT, DOCUMENT, XML_NS,
+  ELEMENT, ATTRIBUTE, TEXT, PROCESSING_INSTRUCTION, COMMENT, DOCUMENT, XML_NS, XHTML_NS,
 } from './node-types.js';
 
 // Node tests (REC §2.3) plus the HTML compatibility layer (§6).
 
-// Principal node type of each axis: attribute for the attribute axis, namespace
-// for the namespace axis, element for all others (REC §2.3).
+// Principal node type of an axis: attribute for the attribute axis, element for
+// all others (REC §2.3). The namespace axis never reaches here — it is handled
+// (as always-empty) before any name test runs.
 function principalType(axis) {
-  if (axis === 'attribute') return ATTRIBUTE;
-  if (axis === 'namespace') return ATTRIBUTE; // placeholder; namespace axis is always empty
-  return ELEMENT;
+  return axis === 'attribute' ? ATTRIBUTE : ELEMENT;
 }
 
 // ASCII-only lowercasing for HTML case-insensitive name matching (§6). Must NOT
@@ -68,11 +67,16 @@ export function matchesNodeTest(node, nodeTest, axis, adapter, resolver, html) {
   if (nodeTest.prefix == null) {
     if (nodeTest.local === '*') return true; // any node of the principal type
 
-    // HTML documents: unprefixed name tests match by localName, ASCII
-    // case-insensitively, regardless of (the XHTML) namespace (§6).
     if (html) {
-      if (principal === ATTRIBUTE && ns != null) return false;
-      return asciiLower(local) === asciiLower(nodeTest.local);
+      // HTML attributes are no-namespace and lowercased: ASCII case-insensitive.
+      if (principal === ATTRIBUTE) {
+        return ns == null && asciiLower(local) === asciiLower(nodeTest.local);
+      }
+      // HTML elements live in the XHTML namespace and fold ASCII case (§6).
+      // Foreign content (SVG/MathML) and no-namespace elements keep the standard
+      // case-sensitive, no-namespace XPath rule.
+      if (ns === XHTML_NS) return asciiLower(local) === asciiLower(nodeTest.local);
+      return ns == null && local === nodeTest.local;
     }
 
     // XML/XHTML: unprefixed = no namespace, case-sensitive (REC §2.3).

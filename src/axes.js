@@ -9,6 +9,7 @@ import { DOCUMENT } from './node-types.js';
 // nested documents do not overflow the call stack (§10.2).
 
 function previousSibling(node, adapter) {
+  if (adapter.previousSibling) return adapter.previousSibling(node);
   const parent = adapter.parent(node);
   if (!parent) return null;
   const kids = adapter.childNodes(parent);

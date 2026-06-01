@@ -176,6 +176,24 @@ test('prefixed name tests resolve via the resolver (case-sensitive)', () => {
   assert.deepEqual(labels('//h:DIV', html.document, { resolver }), []); // prefixed stays case-sensitive
 });
 
+test('HTML case-folding does not leak into foreign (non-XHTML) content', () => {
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const rect = element('rect', {}, [], { namespaceURI: SVG_NS });
+  const svg = element('svg', {}, [rect], { namespaceURI: SVG_NS });
+  const div = element('div', {}, [svg], { namespaceURI: XHTML_NS });
+  const document = doc(element('html', {}, [div], { namespaceURI: XHTML_NS }), { isHtml: true });
+
+  // The XHTML div still folds case...
+  assert.deepEqual(labels('//DIV', document), ['div']);
+  // ...but an unprefixed test must NOT match the SVG-namespaced <rect>.
+  assert.deepEqual(labels('//rect', document), []);
+  assert.deepEqual(labels('//RECT', document), []);
+  // A prefixed, resolver-bound test matches it, case-sensitively.
+  const resolver = (p) => (p === 's' ? SVG_NS : null);
+  assert.deepEqual(labels('//s:rect', document, { resolver }), ['rect']);
+  assert.deepEqual(labels('//s:RECT', document, { resolver }), []);
+});
+
 test('unresolved namespace prefix is an error', () => {
   assert.throws(() => select('//z:foo', fx.document), /unresolved namespace prefix/);
 });
