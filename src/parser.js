@@ -1,5 +1,3 @@
-'use strict';
-
 import { tokenize, T } from './lexer.js';
 import { XPathSyntaxError } from './errors.js';
 

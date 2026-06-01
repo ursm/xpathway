@@ -1,5 +1,3 @@
-'use strict';
-
 import { XPathSyntaxError } from './errors.js';
 
 // Tokenizer for XPath 1.0 expressions (W3C REC §3.7, "Lexical Structure").

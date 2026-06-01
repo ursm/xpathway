@@ -1,5 +1,3 @@
-'use strict';
-
 // XPath 1.0 grammar / lexical error. The public API (§4) maps this to a
 // DOMException with name 'SyntaxError' (INVALID_EXPRESSION_ERR); internally we
 // throw this richer error so callers can see the position.
