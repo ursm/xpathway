@@ -87,3 +87,21 @@ function numericValues(value, adapter) {
   }
   return [toNumber(value, adapter)];
 }
+
+// Compares a single string `value` (e.g. an attribute's value) against a literal
+// operand, with exactly the semantics compareEquality/compareRelational would
+// apply to a one-node node-set vs that primitive (REC §3.4). `literal` is a
+// string (string comparison for =/!=) or a number (numeric comparison). Used by
+// the attribute-comparison fast path; callers pass the operator already oriented
+// so `value` is the left-hand side.
+export function compareValueLiteral(op, value, literal) {
+  if (op === '=' || op === '!=') {
+    const equal = typeof literal === 'number'
+      ? stringToNumber(value) === literal
+      : value === literal;
+    return op === '=' ? equal : !equal;
+  }
+  const a = stringToNumber(value);
+  const b = typeof literal === 'number' ? literal : stringToNumber(literal);
+  return REL_TESTS[op](a, b);
+}

@@ -1,4 +1,5 @@
 import { coreFunctions } from './functions.js';
+import { isHtmlDocument } from './nodetest.js';
 
 // An evaluation context (REC §1): the context node, a 1-based position within a
 // context size, plus the injected adapter, namespace resolver, and function
@@ -11,8 +12,20 @@ import { coreFunctions } from './functions.js';
 // evaluation. A context is intended for a single document; each cache entry also
 // records its document, so reusing a context across documents recomputes rather
 // than returning a stale result.
+// `html` (whether the context document is HTML, §6) is document-constant for the
+// whole evaluation, so it is computed once here and shared, instead of being
+// re-derived per step / per node-test / per attribute comparison.
 export function makeRootContext(node, adapter, { resolver = null, functions = coreFunctions } = {}) {
-  return { node, position: 1, size: 1, adapter, resolver, functions, cache: new Map() };
+  return {
+    node,
+    position: 1,
+    size: 1,
+    adapter,
+    resolver,
+    functions,
+    cache: new Map(),
+    html: isHtmlDocument(node, adapter),
+  };
 }
 
 // A child context sharing everything but the current node/position/size, used
@@ -26,5 +39,6 @@ export function withNode(ctx, node, position, size) {
     resolver: ctx.resolver,
     functions: ctx.functions,
     cache: ctx.cache,
+    html: ctx.html,
   };
 }

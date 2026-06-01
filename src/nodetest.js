@@ -28,6 +28,17 @@ function asciiEqualsIgnoreCase(a, b) {
   return true;
 }
 
+// ASCII-only lowercasing, used to build the case-folded key for an HTML
+// attribute lookup (§6: HTML attribute keys are lowercase).
+function asciiLower(s) {
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    out += c >= 0x41 && c <= 0x5a ? String.fromCharCode(c + 0x20) : s[i];
+  }
+  return out;
+}
+
 // Resolves a namespace prefix to a URI, or null if unbound. The `xml` prefix is
 // always bound (XML Namespaces). Otherwise the supplied resolver is consulted —
 // either a function or an object with lookupNamespaceURI (XPathNSResolver, §4).
@@ -96,6 +107,25 @@ export function matchesNodeTest(node, nodeTest, axis, adapter, resolver, html) {
   }
   if (nodeTest.local === '*') return ns === uri;
   return ns === uri && local === nodeTest.local;
+}
+
+// Resolves a `@name` attribute name test to the matching attribute's string
+// value, or undefined if absent — via the adapter's getAttribute, without
+// enumerating the element's attributes into a node-set. Mirrors the attribute
+// rules of matchesNodeTest, including §6 HTML case-folding of unprefixed names.
+// `nameTest` must be a concrete name test (a non-`*` local name).
+export function attributeValue(node, nameTest, adapter, resolver, html) {
+  if (adapter.nodeType(node) !== ELEMENT) return undefined;
+  let namespaceURI = null;
+  if (nameTest.prefix != null) {
+    namespaceURI = resolvePrefix(resolver, nameTest.prefix);
+    if (namespaceURI == null) {
+      throw new XPathTypeError(`unresolved namespace prefix '${nameTest.prefix}'`);
+    }
+  }
+  const local = html && nameTest.prefix == null ? asciiLower(nameTest.local) : nameTest.local;
+  const value = adapter.getAttribute(node, namespaceURI, local);
+  return value == null ? undefined : value;
 }
 
 // The document (root) node owning `node`, or `node` itself if it is the

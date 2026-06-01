@@ -149,6 +149,26 @@ test('a malformed union (non-node-set arm) still raises a type error', () => {
   assert.throws(() => select('//*[c | 1]'), /node-set/);
 });
 
+test('attribute comparison fast path matches node-set semantics', () => {
+  assert.deepEqual(labels('/root/a[@id = "a1"]'), ['a#a1']);
+  assert.deepEqual(labels('/root/a[@id != "a1"]'), ['a#a2']);
+  // An absent attribute is the empty node-set: every comparison is false,
+  // including `!=` (the classic XPath gotcha).
+  assert.deepEqual(labels('/root/a[@missing != "x"]'), []);
+  assert.deepEqual(labels('/root/a[@missing = "x"]'), []);
+  // `@name` existence also uses the fast path.
+  assert.deepEqual(labels('/root/a[@id]'), ['a#a1', 'a#a2']);
+
+  // Relational comparison, both operand orders, on a numeric attribute value.
+  const items = [element('i', { n: '3' }), element('i', { n: '10' })];
+  const list = doc(element('list', {}, items));
+  const ns = (expr) => evaluate(parse(expr), makeRootContext(list, adapter))
+    .ordered(adapter).map((node) => adapter.getAttribute(node, null, 'n'));
+  assert.deepEqual(ns('//i[@n > 5]'), ['10']);
+  assert.deepEqual(ns('//i[5 < @n]'), ['10']); // attribute on the right -> operator flips
+  assert.deepEqual(ns('//i[@n <= 3]'), ['3']);
+});
+
 test('union in document order', () => {
   assert.deepEqual(labels('//c | //b'), ['b', 'b', 'c']);
 });

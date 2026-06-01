@@ -1,7 +1,7 @@
 import { NodeSet, isNodeSet, toBoolean, toNumber } from './types.js';
-import { compareEquality, compareRelational } from './compare.js';
+import { compareEquality, compareRelational, compareValueLiteral } from './compare.js';
 import { axisNodes } from './axes.js';
-import { matchesNodeTest, isHtmlDocument, documentNodeOf } from './nodetest.js';
+import { matchesNodeTest, documentNodeOf, attributeValue } from './nodetest.js';
 import { withNode } from './context.js';
 import { XPathTypeError } from './errors.js';
 
@@ -71,18 +71,67 @@ function evaluateBinary(ast, ctx) {
     return unionNodeSets(left, right);
   }
 
-  const left = evaluate(ast.left, ctx);
-  const right = evaluate(ast.right, ctx);
+  if (op === '=' || op === '!=' || op === '<' || op === '<=' || op === '>' || op === '>=') {
+    // Fast path for `@name <op> literal` (the dominant Capybara predicate shape):
+    // resolve the attribute via getAttribute instead of materialising an
+    // attribute-axis node-set per candidate node.
+    const fast = tryAttributeComparison(ast, ctx);
+    if (fast !== null) return fast;
 
-  if (op === '=' || op === '!=') {
-    return compareEquality(op, left, right, ctx.adapter);
-  }
-  if (op === '<' || op === '<=' || op === '>' || op === '>=') {
-    return compareRelational(op, left, right, ctx.adapter);
+    const left = evaluate(ast.left, ctx);
+    const right = evaluate(ast.right, ctx);
+    return (op === '=' || op === '!=')
+      ? compareEquality(op, left, right, ctx.adapter)
+      : compareRelational(op, left, right, ctx.adapter);
   }
 
   const arith = ARITHMETIC[op];
-  return arith(toNumber(left, ctx.adapter), toNumber(right, ctx.adapter));
+  return arith(toNumber(evaluate(ast.left, ctx), ctx.adapter), toNumber(evaluate(ast.right, ctx), ctx.adapter));
+}
+
+// Relational operators with the attribute on the right-hand side compare in the
+// opposite direction.
+const FLIP_REL = {
+  '<': '>', '>': '<', '<=': '>=', '>=': '<=',
+};
+
+// A relative single attribute step with a concrete (non-`*`) name test and no
+// predicates — i.e. `@name`. Returns its name test, or null.
+function simpleAttributeNameTest(ast) {
+  if (ast.type !== 'Path' || ast.root != null || ast.steps.length !== 1) return null;
+  const step = ast.steps[0];
+  if (step.axis !== 'attribute' || step.predicates.length !== 0) return null;
+  const test = step.nodeTest;
+  return test.kind === 'name' && test.local !== '*' ? test : null;
+}
+
+// A compile-time constant operand (string or number literal), or undefined.
+function constantOperand(ast) {
+  if (ast.type === 'Literal') return ast.value;
+  if (ast.type === 'Number') return ast.value;
+  return undefined;
+}
+
+// Returns the boolean result of `@name <op> literal`, or null when the
+// expression is not of that shape (so the caller falls back to full evaluation).
+function tryAttributeComparison(ast, ctx) {
+  let nameTest = simpleAttributeNameTest(ast.left);
+  let literal = nameTest === null ? undefined : constantOperand(ast.right);
+  let attributeOnLeft = true;
+  if (nameTest === null || literal === undefined) {
+    nameTest = simpleAttributeNameTest(ast.right);
+    literal = nameTest === null ? undefined : constantOperand(ast.left);
+    attributeOnLeft = false;
+  }
+  if (nameTest === null || literal === undefined) return null;
+
+  const value = attributeValue(ctx.node, nameTest, ctx.adapter, ctx.resolver, ctx.html);
+  // An absent attribute is the empty node-set: every comparison with a primitive
+  // is false (existential over no nodes), including `!=`.
+  if (value === undefined) return false;
+
+  const op = !attributeOnLeft && FLIP_REL[ast.op] ? FLIP_REL[ast.op] : ast.op;
+  return compareValueLiteral(op, value, literal);
 }
 
 // Set union by node identity; document order is established lazily when observed.
@@ -115,7 +164,7 @@ function evaluatePath(ast, ctx) {
     if (cached && cached.doc === doc) return cached.value;
   }
 
-  const html = isHtmlDocument(ctx.node, adapter);
+  const { html } = ctx;
 
   let current;
   if (ast.root == null) {
@@ -243,12 +292,18 @@ function existsBoolean(ast, ctx, html) {
 }
 
 function pathExists(ast, ctx, html) {
-  // Fast path: a context-relative `self::X` with no predicates is pure name-test
-  // membership on the context node — no axis walk, no node-set.
+  // Fast paths for context-relative single steps with no predicates.
   if (ast.root == null && ast.steps.length === 1) {
     const step = ast.steps[0];
-    if (step.axis === 'self' && step.predicates.length === 0) {
-      return matchesNodeTest(ctx.node, step.nodeTest, 'self', ctx.adapter, ctx.resolver, html);
+    if (step.predicates.length === 0) {
+      // `self::X` is pure name-test membership on the context node.
+      if (step.axis === 'self') {
+        return matchesNodeTest(ctx.node, step.nodeTest, 'self', ctx.adapter, ctx.resolver, html);
+      }
+      // `@name` existence is a single getAttribute, no attribute-axis node-set.
+      if (step.axis === 'attribute' && step.nodeTest.kind === 'name' && step.nodeTest.local !== '*') {
+        return attributeValue(ctx.node, step.nodeTest, ctx.adapter, ctx.resolver, html) !== undefined;
+      }
     }
   }
   return evaluatePath(ast, ctx).size > 0;
@@ -262,8 +317,7 @@ function evaluateFilter(ast, ctx) {
     throw new XPathTypeError('predicate applied to a non-node-set value');
   }
   const ordered = value.ordered(ctx.adapter).slice();
-  const html = isHtmlDocument(ctx.node, ctx.adapter);
-  return new NodeSet(applyPredicates(ordered, ast.predicates, ctx, html), true);
+  return new NodeSet(applyPredicates(ordered, ast.predicates, ctx, ctx.html), true);
 }
 
 function evaluateFunction(ast, ctx) {
