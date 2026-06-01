@@ -170,7 +170,7 @@ function evaluateStep(step, inputNodes, ctx, html) {
     if (!matchesAll) {
       candidates = candidates.filter((n) => matchesNodeTest(n, test, step.axis, adapter, ctx.resolver, html));
     }
-    candidates = applyPredicates(candidates, step.predicates, ctx);
+    candidates = applyPredicates(candidates, step.predicates, ctx, html);
     if (seen) {
       for (const n of candidates) {
         if (!seen.has(n)) {
@@ -185,24 +185,66 @@ function evaluateStep(step, inputNodes, ctx, html) {
   return out;
 }
 
+// A predicate of this shape always evaluates to a node-set (never a number), so
+// it is a boolean filter, not a position test — and it only needs its *existence*,
+// which existsBoolean() can decide without materialising the set.
+function isNodeSetPredicate(ast) {
+  return ast.type === 'Path' || ast.type === 'Filter'
+    || (ast.type === 'Binary' && ast.op === 'union');
+}
+
 // Filters `nodes` (in axis order) through each predicate in turn. Proximity
 // position is the node's 1-based index in the current axis-ordered list; a
 // numeric predicate selects that position, any other value is taken as a boolean
 // (REC §2.4).
-function applyPredicates(nodes, predicates, ctx) {
+function applyPredicates(nodes, predicates, ctx, html) {
   let current = nodes;
   for (const predicate of predicates) {
     const size = current.length;
+    const existence = isNodeSetPredicate(predicate);
     const kept = [];
     for (let i = 0; i < current.length; i++) {
       const position = i + 1;
-      const value = evaluate(predicate, withNode(ctx, current[i], position, size));
-      const keep = typeof value === 'number' ? value === position : toBoolean(value);
+      const predCtx = withNode(ctx, current[i], position, size);
+      let keep;
+      if (existence) {
+        keep = existsBoolean(predicate, predCtx, html);
+      } else {
+        const value = evaluate(predicate, predCtx);
+        keep = typeof value === 'number' ? value === position : toBoolean(value);
+      }
       if (keep) kept.push(current[i]);
     }
     current = kept;
   }
   return current;
+}
+
+// Decides whether a node-set-valued expression selects at least one node,
+// short-circuiting so common predicates never allocate a node-set. The big win
+// is `self::a | self::b | self::c` (the field-finder shape Capybara emits): each
+// arm becomes a name-test membership check on the context node.
+function existsBoolean(ast, ctx, html) {
+  if (ast.type === 'Binary' && ast.op === 'union') {
+    return existsBoolean(ast.left, ctx, html) || existsBoolean(ast.right, ctx, html);
+  }
+  if (ast.type === 'Path') {
+    return pathExists(ast, ctx, html);
+  }
+  // Filter expressions (and anything else) fall back to full materialisation.
+  return toBoolean(evaluate(ast, ctx));
+}
+
+function pathExists(ast, ctx, html) {
+  // Fast path: a context-relative `self::X` with no predicates is pure name-test
+  // membership on the context node — no axis walk, no node-set.
+  if (ast.root == null && ast.steps.length === 1) {
+    const step = ast.steps[0];
+    if (step.axis === 'self' && step.predicates.length === 0) {
+      return matchesNodeTest(ctx.node, step.nodeTest, 'self', ctx.adapter, ctx.resolver, html);
+    }
+  }
+  return evaluatePath(ast, ctx).size > 0;
 }
 
 // FilterExpr: a primary expression (a node-set) narrowed by predicates, which
@@ -213,7 +255,8 @@ function evaluateFilter(ast, ctx) {
     throw new XPathTypeError('predicate applied to a non-node-set value');
   }
   const ordered = value.ordered(ctx.adapter).slice();
-  return new NodeSet(applyPredicates(ordered, ast.predicates, ctx), true);
+  const html = isHtmlDocument(ctx.node, ctx.adapter);
+  return new NodeSet(applyPredicates(ordered, ast.predicates, ctx, html), true);
 }
 
 function evaluateFunction(ast, ctx) {

@@ -131,6 +131,16 @@ test('chained predicates', () => {
   assert.deepEqual(labels('//b[. = "B2"]'), ['b']);
 });
 
+test('union predicate is an existence test and composes with numeric predicates', () => {
+  // `self::a | self::b` is a node-set predicate -> kept iff the context node is
+  // an <a> or <b> (existence), not a position test.
+  assert.deepEqual(labels('//*[self::a | self::b]'), ['a#a1', 'b', 'a#a2', 'b']);
+  assert.deepEqual(labels('//*[self::c]'), ['c']);
+  // Existence predicate followed by a positional one still works.
+  assert.deepEqual(labels('/root/a[self::a][2]'), ['a#a2']);
+  assert.deepEqual(labels('/root/*[self::a or self::d][last()]'), ['d']);
+});
+
 test('union in document order', () => {
   assert.deepEqual(labels('//c | //b'), ['b', 'b', 'c']);
 });
