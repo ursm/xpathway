@@ -6,6 +6,7 @@
 // HTML case-folding, namespaces).
 
 export const XHTML_NS = 'http://www.w3.org/1999/xhtml';
+export const XML_NS = 'http://www.w3.org/XML/1998/namespace';
 
 const ELEMENT = 1;
 const ATTRIBUTE = 2;
@@ -42,10 +43,9 @@ export function element(name, attrs = {}, children = [], { namespaceURI = null }
       name: attrName,
       localName: a.local,
       prefix: a.prefix,
-      // All attributes are no-namespace for now. Stage 3/6 (the §6 namespace
-      // tests) will need real attribute namespaces (e.g. xml:lang); extend here
-      // when that lands.
-      namespaceURI: null,
+      // The `xml` prefix is implicitly the XML namespace (needed for lang()).
+      // Other prefixed attributes remain no-namespace for these fixtures.
+      namespaceURI: a.prefix === 'xml' ? XML_NS : null,
       value: String(value),
       parent: node,
       ownerDocument: null,
