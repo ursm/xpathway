@@ -138,9 +138,17 @@ function evaluatePath(ast, ctx) {
   return result;
 }
 
-// Axes whose results from two distinct context nodes can never overlap: a node
+// Axes whose results from two *distinct* context nodes can never overlap: a node
 // has exactly one parent, so its self / its children / its attributes belong to
-// no other context node. Steps on these axes need no cross-node de-duplication.
+// no other context node (the namespace axis is simply always empty). Steps on
+// these axes need no cross-node de-duplication.
+//
+// This relies on the library-wide invariant that every node-set holds DISTINCT
+// nodes. All core producers maintain it: axis steps de-dup (or are disjoint),
+// union and id() de-dup by identity, predicates filter a distinct set. The only
+// way to break it is a custom function (a §12 non-goal, not reachable through the
+// public API) that returns a node-set with repeated nodes — such a function would
+// already be violating the node-set contract.
 const DISJOINT_AXES = new Set(['self', 'child', 'attribute', 'namespace']);
 
 // Applies one step to a whole input node-set, returning the union of the
