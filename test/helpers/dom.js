@@ -90,8 +90,14 @@ export function doc(topLevel, { isHtml = false } = {}) {
     isHtml,
   };
 
+  // Iterative pre-order walk so deeply nested fixtures (used to test the
+  // library's stack-safety) do not overflow the builder itself.
   let order = 0;
-  const visit = (node, parent) => {
+  document._order = order++;
+  const stack = [];
+  for (let i = children.length - 1; i >= 0; i--) stack.push([children[i], document]);
+  while (stack.length) {
+    const [node, parent] = stack.pop();
     node.parent = parent;
     node.ownerDocument = document;
     node._order = order++;
@@ -103,11 +109,9 @@ export function doc(topLevel, { isHtml = false } = {}) {
         attr._order = order++;
       }
     }
-    for (const child of node.childNodes ?? []) visit(child, node);
-  };
-
-  document._order = order++;
-  for (const child of children) visit(child, document);
+    const kids = node.childNodes ?? [];
+    for (let i = kids.length - 1; i >= 0; i--) stack.push([kids[i], node]);
+  }
   return document;
 }
 
@@ -122,14 +126,17 @@ function stringValue(node) {
       return node.value;
     case ELEMENT:
     case DOCUMENT: {
+      // Concatenate all descendant text nodes in document order (iteratively).
       let out = '';
-      const walk = (n) => {
-        for (const child of n.childNodes ?? []) {
-          if (child.nodeType === TEXT) out += child.value;
-          else if (child.nodeType === ELEMENT) walk(child);
+      const stack = [...(node.childNodes ?? [])].reverse();
+      while (stack.length) {
+        const n = stack.pop();
+        if (n.nodeType === TEXT) out += n.value;
+        else if (n.nodeType === ELEMENT) {
+          const kids = n.childNodes ?? [];
+          for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
         }
-      };
-      walk(node);
+      }
       return out;
     }
     default:
@@ -173,20 +180,17 @@ export const adapter = {
     return Math.sign(a._order - b._order);
   },
   getElementById: (d, id) => {
-    let found = null;
-    const walk = (n) => {
-      if (found) return;
+    const stack = [...(d.childNodes ?? [])].reverse();
+    while (stack.length) {
+      const n = stack.pop();
       if (n.nodeType === ELEMENT) {
         const idAttr = (n.attributes ?? []).find((a) => a.localName === 'id' && a.prefix === null);
-        if (idAttr && idAttr.value === id) {
-          found = n;
-          return;
-        }
+        if (idAttr && idAttr.value === id) return n;
+        const kids = n.childNodes ?? [];
+        for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
       }
-      for (const child of n.childNodes ?? []) walk(child);
-    };
-    walk(d);
-    return found;
+    }
+    return null;
   },
   isHtmlDocument: (d) => !!d.isHtml,
 };

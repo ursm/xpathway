@@ -60,7 +60,7 @@ test('union of non-node-sets is a type error', () => {
   assert.throws(() => evalExpr('1 | 2'), XPathTypeError);
 });
 
-test('paths and functions are deferred to later stages (clear errors for now)', () => {
-  assert.throws(() => evalExpr('a/b'), XPathTypeError);
-  assert.throws(() => evalExpr('foo()'), XPathTypeError);
+test('unknown functions are a type error', () => {
+  // The core library is wired in Stage 4; until then unknown names throw.
+  assert.throws(() => evalExpr('no_such_function()'), XPathTypeError);
 });

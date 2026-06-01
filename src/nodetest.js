@@ -1,0 +1,95 @@
+import {
+  ELEMENT, ATTRIBUTE, TEXT, PROCESSING_INSTRUCTION, COMMENT, DOCUMENT, XML_NS,
+} from './node-types.js';
+
+// Node tests (REC §2.3) plus the HTML compatibility layer (§6).
+
+// Principal node type of each axis: attribute for the attribute axis, namespace
+// for the namespace axis, element for all others (REC §2.3).
+function principalType(axis) {
+  if (axis === 'attribute') return ATTRIBUTE;
+  if (axis === 'namespace') return ATTRIBUTE; // placeholder; namespace axis is always empty
+  return ELEMENT;
+}
+
+// ASCII-only lowercasing for HTML case-insensitive name matching (§6). Must NOT
+// touch non-ASCII letters, which stay case-sensitive.
+function asciiLower(s) {
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    out += c >= 0x41 && c <= 0x5a ? String.fromCharCode(c + 0x20) : s[i];
+  }
+  return out;
+}
+
+// Resolves a namespace prefix to a URI, or null if unbound. The `xml` prefix is
+// always bound (XML Namespaces). Otherwise the supplied resolver is consulted —
+// either a function or an object with lookupNamespaceURI (XPathNSResolver, §4).
+export function resolvePrefix(resolver, prefix) {
+  if (prefix === 'xml') return XML_NS;
+  if (!resolver) return null;
+  if (typeof resolver === 'function') return resolver(prefix) ?? null;
+  if (typeof resolver.lookupNamespaceURI === 'function') {
+    return resolver.lookupNamespaceURI(prefix) ?? null;
+  }
+  return null;
+}
+
+// Whether `node` (reached via `axis`) satisfies `nodeTest`. `html` is true when
+// evaluating against an HTML document (§6).
+export function matchesNodeTest(node, nodeTest, axis, adapter, resolver, html) {
+  const type = adapter.nodeType(node);
+
+  if (nodeTest.kind === 'type') {
+    switch (nodeTest.name) {
+      case 'node':
+        return true;
+      case 'text':
+        return type === TEXT;
+      case 'comment':
+        return type === COMMENT;
+      case 'processing-instruction':
+        if (type !== PROCESSING_INSTRUCTION) return false;
+        return nodeTest.literal == null || adapter.nodeName(node) === nodeTest.literal;
+      default:
+        return false;
+    }
+  }
+
+  // Name test: the node must be of the axis's principal node type.
+  if (axis === 'namespace') return false; // no namespace nodes exist
+  const principal = principalType(axis);
+  if (type !== principal) return false;
+
+  const local = adapter.localName(node);
+  const ns = adapter.namespaceURI(node) ?? null;
+
+  if (nodeTest.prefix == null) {
+    if (nodeTest.local === '*') return true; // any node of the principal type
+
+    // HTML documents: unprefixed name tests match by localName, ASCII
+    // case-insensitively, regardless of (the XHTML) namespace (§6).
+    if (html) {
+      if (principal === ATTRIBUTE && ns != null) return false;
+      return asciiLower(local) === asciiLower(nodeTest.local);
+    }
+
+    // XML/XHTML: unprefixed = no namespace, case-sensitive (REC §2.3).
+    return ns == null && local === nodeTest.local;
+  }
+
+  // Prefixed name test: the prefix must resolve, then namespace must match.
+  const uri = resolvePrefix(resolver, nodeTest.prefix);
+  if (uri == null) {
+    throw new Error(`unresolved namespace prefix '${nodeTest.prefix}'`);
+  }
+  if (nodeTest.local === '*') return ns === uri;
+  return ns === uri && local === nodeTest.local;
+}
+
+// True when `node` belongs to an HTML document (§6), via the adapter.
+export function isHtmlDocument(node, adapter) {
+  const doc = adapter.nodeType(node) === DOCUMENT ? node : adapter.ownerDocument(node);
+  return doc ? !!adapter.isHtmlDocument(doc) : false;
+}

@@ -1,5 +1,9 @@
 import { NodeSet, isNodeSet, toBoolean, toNumber } from './types.js';
 import { compareEquality, compareRelational } from './compare.js';
+import { axisNodes } from './axes.js';
+import { matchesNodeTest, isHtmlDocument } from './nodetest.js';
+import { DOCUMENT } from './node-types.js';
+import { withNode } from './context.js';
 import { XPathTypeError } from './errors.js';
 
 // Core expression evaluator. Given an AST node and an evaluation context, returns
@@ -95,14 +99,96 @@ export function unionNodeSets(a, b) {
   return new NodeSet(nodes, false);
 }
 
-function evaluatePath() {
-  throw new XPathTypeError('location path evaluation is implemented in Stage 3');
+// --- Location paths and steps (REC §2) -------------------------------------
+
+function documentNode(node, adapter) {
+  return adapter.nodeType(node) === DOCUMENT ? node : adapter.ownerDocument(node);
 }
 
-function evaluateFilter() {
-  throw new XPathTypeError('filter expression evaluation is implemented in Stage 3');
+function evaluatePath(ast, ctx) {
+  const { adapter } = ctx;
+  const html = isHtmlDocument(ctx.node, adapter);
+
+  let current;
+  if (ast.root == null) {
+    current = [ctx.node];
+  } else if (ast.root.type === 'Root') {
+    const doc = documentNode(ctx.node, adapter);
+    current = doc ? [doc] : [];
+  } else {
+    const value = evaluate(ast.root, ctx);
+    if (!isNodeSet(value)) {
+      throw new XPathTypeError('the left-hand side of a path step is not a node-set');
+    }
+    current = value.nodes.slice();
+  }
+
+  for (const step of ast.steps) {
+    current = evaluateStep(step, current, ctx, html);
+  }
+  return new NodeSet(current, false);
 }
 
-function evaluateFunction() {
-  throw new XPathTypeError('function calls are implemented in Stage 4');
+// Applies one step to a whole input node-set, returning the de-duplicated union
+// of the per-node results.
+function evaluateStep(step, inputNodes, ctx, html) {
+  const { adapter } = ctx;
+  const out = [];
+  const seen = new Set();
+
+  for (const node of inputNodes) {
+    let candidates = axisNodes(step.axis, node, adapter);
+    candidates = candidates.filter((n) => matchesNodeTest(n, step.nodeTest, step.axis, adapter, ctx.resolver, html));
+    candidates = applyPredicates(candidates, step.predicates, ctx);
+    for (const n of candidates) {
+      if (!seen.has(n)) {
+        seen.add(n);
+        out.push(n);
+      }
+    }
+  }
+  return out;
+}
+
+// Filters `nodes` (in axis order) through each predicate in turn. Proximity
+// position is the node's 1-based index in the current axis-ordered list; a
+// numeric predicate selects that position, any other value is taken as a boolean
+// (REC §2.4).
+function applyPredicates(nodes, predicates, ctx) {
+  let current = nodes;
+  for (const predicate of predicates) {
+    const size = current.length;
+    const kept = [];
+    for (let i = 0; i < current.length; i++) {
+      const position = i + 1;
+      const value = evaluate(predicate, withNode(ctx, current[i], position, size));
+      const keep = typeof value === 'number' ? value === position : toBoolean(value);
+      if (keep) kept.push(current[i]);
+    }
+    current = kept;
+  }
+  return current;
+}
+
+// FilterExpr: a primary expression (a node-set) narrowed by predicates, which
+// apply in document (forward) order.
+function evaluateFilter(ast, ctx) {
+  const value = evaluate(ast.primary, ctx);
+  if (!isNodeSet(value)) {
+    throw new XPathTypeError('predicate applied to a non-node-set value');
+  }
+  const ordered = value.ordered(ctx.adapter).slice();
+  return new NodeSet(applyPredicates(ordered, ast.predicates, ctx), true);
+}
+
+function evaluateFunction(ast, ctx) {
+  if (ast.prefix) {
+    throw new XPathTypeError(`unknown function: ${ast.prefix}:${ast.name}()`);
+  }
+  const fn = ctx.functions && ctx.functions[ast.name];
+  if (!fn) {
+    throw new XPathTypeError(`unknown function: ${ast.name}()`);
+  }
+  const args = ast.args.map((arg) => evaluate(arg, ctx));
+  return fn(ctx, args);
 }
