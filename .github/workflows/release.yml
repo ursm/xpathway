@@ -1,0 +1,37 @@
+name: Release
+
+# Publishes to npm and creates a GitHub Release when a v* tag is pushed, e.g.
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# Authentication uses npm Trusted Publishing (OIDC) — no NPM_TOKEN secret. It
+# requires a one-time setup on npmjs.com: the package's Settings -> "Trusted
+# Publisher" must point at this repository and this workflow file (release.yml).
+# Because that setup is per-package, the very first 1.0.0 publish must be done
+# once manually (npm publish after npm login) to create the package; afterwards
+# every tagged release publishes here with no secrets, and with provenance.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # mint the OIDC token for npm Trusted Publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # Trusted Publishing needs a recent npm (>= 11.5.1).
+      - run: npm install -g npm@latest
+      - run: node --test
+      - run: npm publish
+      - run: gh release create "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
