@@ -301,6 +301,16 @@ export function tokenize(expr) {
       const followedByParen = expr[after] === '(';
       const followedByDoubleColon = expr[after] === ':' && expr[after + 1] === ':';
 
+      // Rule 1 has the highest precedence and must be applied BEFORE the
+      // followed-by-`(` rule: in operator position a bare and/or/mod/div is an
+      // OperatorName even when immediately followed by `(`. Expressions like
+      // `(a = 'x') or (b = 'y')` (which Capybara's field/button XPaths emit
+      // constantly) otherwise mis-lex `or` as a function name.
+      if (prefix == null && local !== '*' && inOperatorPosition() && OPERATOR_NAMES.has(local)) {
+        push(OPERATOR_NAMES.get(local), local, start);
+        continue;
+      }
+
       if (followedByDoubleColon && prefix == null && local !== '*') {
         push(T.AXISNAME, local, start);
         continue;
@@ -316,12 +326,6 @@ export function tokenize(expr) {
       }
       if (followedByParen && prefix != null) {
         push(T.FUNCNAME, { prefix, local }, start);
-        continue;
-      }
-
-      // Operator name (and/or/mod/div) only in operator position.
-      if (prefix == null && local !== '*' && inOperatorPosition() && OPERATOR_NAMES.has(local)) {
-        push(OPERATOR_NAMES.get(local), local, start);
         continue;
       }
 

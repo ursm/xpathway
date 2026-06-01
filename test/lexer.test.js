@@ -49,6 +49,23 @@ test('and/or/mod/div are operators only in operator position', () => {
   assert.deepEqual(types('//div'), [T.DOUBLESLASH, T.NAMETEST]);
 });
 
+test('operator name in operator position wins over followed-by-paren', () => {
+  // §3.7 rule 1 (preceding token → OperatorName) is applied before the
+  // followed-by-`(` rule. `or`/`and`/`div`/`mod` after a `)` (or any non
+  // @ :: ( [ , Operator token) are operators even when a `(` follows — the
+  // shape Capybara's field XPaths emit: `(a = 'x') or (b = 'y')`.
+  assert.deepEqual(
+    types("(a = 'x') or (b = 'y')"),
+    [T.LPAREN, T.NAMETEST, T.EQ, T.LITERAL, T.RPAREN, T.OR,
+     T.LPAREN, T.NAMETEST, T.EQ, T.LITERAL, T.RPAREN],
+  );
+  assert.deepEqual(types("1 and (2)"), [T.NUMBER, T.AND, T.LPAREN, T.NUMBER, T.RPAREN]);
+  assert.deepEqual(types("7 mod (3)"), [T.NUMBER, T.MOD, T.LPAREN, T.NUMBER, T.RPAREN]);
+  assert.deepEqual(types("7 div (2)"), [T.NUMBER, T.DIV, T.LPAREN, T.NUMBER, T.RPAREN]);
+  // Not in operator position (after `/`, or first token) → still a function/name.
+  assert.deepEqual(types('//or(a)'), [T.DOUBLESLASH, T.FUNCNAME, T.LPAREN, T.NAMETEST, T.RPAREN]);
+});
+
 test('node types vs function names vs name tests (followed by paren)', () => {
   assert.deepEqual(types('text()'), [T.NODETYPE, T.LPAREN, T.RPAREN]);
   assert.deepEqual(types('node()'), [T.NODETYPE, T.LPAREN, T.RPAREN]);
