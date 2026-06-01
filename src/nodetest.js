@@ -12,15 +12,20 @@ function principalType(axis) {
   return axis === 'attribute' ? ATTRIBUTE : ELEMENT;
 }
 
-// ASCII-only lowercasing for HTML case-insensitive name matching (§6). Must NOT
-// touch non-ASCII letters, which stay case-sensitive.
-function asciiLower(s) {
-  let out = '';
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    out += c >= 0x41 && c <= 0x5a ? String.fromCharCode(c + 0x20) : s[i];
+// ASCII case-insensitive string equality for HTML name matching (§6). Compares
+// in place — no lowercased copies are allocated, and a length mismatch (the
+// common case when scanning many elements) short-circuits immediately. Non-ASCII
+// letters stay case-sensitive.
+function asciiEqualsIgnoreCase(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    let ca = a.charCodeAt(i);
+    let cb = b.charCodeAt(i);
+    if (ca >= 0x41 && ca <= 0x5a) ca += 0x20;
+    if (cb >= 0x41 && cb <= 0x5a) cb += 0x20;
+    if (ca !== cb) return false;
   }
-  return out;
+  return true;
 }
 
 // Resolves a namespace prefix to a URI, or null if unbound. The `xml` prefix is
@@ -71,12 +76,12 @@ export function matchesNodeTest(node, nodeTest, axis, adapter, resolver, html) {
     if (html) {
       // HTML attributes are no-namespace and lowercased: ASCII case-insensitive.
       if (principal === ATTRIBUTE) {
-        return ns == null && asciiLower(local) === asciiLower(nodeTest.local);
+        return ns == null && asciiEqualsIgnoreCase(local, nodeTest.local);
       }
       // HTML elements live in the XHTML namespace and fold ASCII case (§6).
       // Foreign content (SVG/MathML) and no-namespace elements keep the standard
       // case-sensitive, no-namespace XPath rule.
-      if (ns === XHTML_NS) return asciiLower(local) === asciiLower(nodeTest.local);
+      if (ns === XHTML_NS) return asciiEqualsIgnoreCase(local, nodeTest.local);
       return ns == null && local === nodeTest.local;
     }
 

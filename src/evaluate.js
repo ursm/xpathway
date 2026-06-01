@@ -138,22 +138,40 @@ function evaluatePath(ast, ctx) {
   return result;
 }
 
-// Applies one step to a whole input node-set, returning the de-duplicated union
-// of the per-node results.
+// Axes whose results from two distinct context nodes can never overlap: a node
+// has exactly one parent, so its self / its children / its attributes belong to
+// no other context node. Steps on these axes need no cross-node de-duplication.
+const DISJOINT_AXES = new Set(['self', 'child', 'attribute', 'namespace']);
+
+// Applies one step to a whole input node-set, returning the union of the
+// per-node results, de-duplicated only when the axis can actually produce
+// overlaps across multiple input nodes.
 function evaluateStep(step, inputNodes, ctx, html) {
   const { adapter } = ctx;
   const out = [];
-  const seen = new Set();
+  const seen = inputNodes.length > 1 && !DISJOINT_AXES.has(step.axis) ? new Set() : null;
+
+  // `node()` matches every node, so the per-candidate filter is a wasteful full
+  // clone of the axis result — common for the `descendant-or-self::node()` that
+  // `//` expands to. Skip it in that case.
+  const test = step.nodeTest;
+  const matchesAll = test.kind === 'type' && test.name === 'node';
 
   for (const node of inputNodes) {
     let candidates = axisNodes(step.axis, node, adapter);
-    candidates = candidates.filter((n) => matchesNodeTest(n, step.nodeTest, step.axis, adapter, ctx.resolver, html));
+    if (!matchesAll) {
+      candidates = candidates.filter((n) => matchesNodeTest(n, test, step.axis, adapter, ctx.resolver, html));
+    }
     candidates = applyPredicates(candidates, step.predicates, ctx);
-    for (const n of candidates) {
-      if (!seen.has(n)) {
-        seen.add(n);
-        out.push(n);
+    if (seen) {
+      for (const n of candidates) {
+        if (!seen.has(n)) {
+          seen.add(n);
+          out.push(n);
+        }
       }
+    } else {
+      for (const n of candidates) out.push(n);
     }
   }
   return out;
