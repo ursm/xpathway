@@ -15,6 +15,9 @@ import { XPathTypeError } from './errors.js';
 // when we can, and sort lazily (via the adapter) only when order is observable
 // (string-value, snapshots, iteration, position predicates).
 export class NodeSet {
+  // A NodeSet takes ownership of `nodes`: ordered() sorts it in place, so the
+  // caller must not retain or share the array. Pass `sorted: true` only when the
+  // array is already in document order (e.g. a single forward-axis step).
   constructor(nodes = [], sorted = false) {
     this.nodes = nodes;
     this.sorted = sorted;

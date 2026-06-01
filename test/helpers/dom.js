@@ -42,6 +42,9 @@ export function element(name, attrs = {}, children = [], { namespaceURI = null }
       name: attrName,
       localName: a.local,
       prefix: a.prefix,
+      // All attributes are no-namespace for now. Stage 3/6 (the §6 namespace
+      // tests) will need real attribute namespaces (e.g. xml:lang); extend here
+      // when that lands.
       namespaceURI: null,
       value: String(value),
       parent: node,
@@ -161,7 +164,14 @@ export const adapter = {
     return attr ? attr.value : null;
   },
   stringValue,
-  compareDocumentPosition: (a, b) => Math.sign((a._order ?? 0) - (b._order ?? 0)),
+  compareDocumentPosition: (a, b) => {
+    // Guard against comparing nodes that were never wired into a document:
+    // falling back to 0 (or NaN) would silently corrupt document order in tests.
+    if (a._order === undefined || b._order === undefined) {
+      throw new Error('compareDocumentPosition: node is not attached to a document (build it with doc())');
+    }
+    return Math.sign(a._order - b._order);
+  },
   getElementById: (d, id) => {
     let found = null;
     const walk = (n) => {
