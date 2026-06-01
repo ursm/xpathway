@@ -95,12 +95,30 @@ const FLIP_REL = {
   '<': '>', '>': '<', '<=': '>=', '>=': '<=',
 };
 
-// A relative single attribute step with a concrete (non-`*`) name test and no
-// predicates — i.e. `@name`. Returns its name test, or null.
+// A `self::node()` step (the `.` abbreviation): a no-op that just re-selects the
+// context node.
+function isSelfNodeStep(step) {
+  return step.axis === 'self'
+    && step.nodeTest.kind === 'type' && step.nodeTest.name === 'node'
+    && step.predicates.length === 0;
+}
+
+// The single effective step of a context-relative path, tolerating a leading
+// `self::node()`: Capybara emits `./@id` (a `.` step then the attribute step),
+// which is equivalent to the bare `@id`. Returns the step, or null.
+function singleRelativeStep(ast) {
+  if (ast.type !== 'Path' || ast.root != null) return null;
+  const { steps } = ast;
+  if (steps.length === 1) return steps[0];
+  if (steps.length === 2 && isSelfNodeStep(steps[0])) return steps[1];
+  return null;
+}
+
+// The name test of a relative `@name` / `./@name` step (concrete, non-`*`, no
+// predicate), or null.
 function simpleAttributeNameTest(ast) {
-  if (ast.type !== 'Path' || ast.root != null || ast.steps.length !== 1) return null;
-  const step = ast.steps[0];
-  if (step.axis !== 'attribute' || step.predicates.length !== 0) return null;
+  const step = singleRelativeStep(ast);
+  if (step === null || step.axis !== 'attribute' || step.predicates.length !== 0) return null;
   const test = step.nodeTest;
   return test.kind === 'name' && test.local !== '*' ? test : null;
 }
@@ -292,18 +310,16 @@ function existsBoolean(ast, ctx, html) {
 }
 
 function pathExists(ast, ctx, html) {
-  // Fast paths for context-relative single steps with no predicates.
-  if (ast.root == null && ast.steps.length === 1) {
-    const step = ast.steps[0];
-    if (step.predicates.length === 0) {
-      // `self::X` is pure name-test membership on the context node.
-      if (step.axis === 'self') {
-        return matchesNodeTest(ctx.node, step.nodeTest, 'self', ctx.adapter, ctx.resolver, html);
-      }
-      // `@name` existence is a single getAttribute, no attribute-axis node-set.
-      if (step.axis === 'attribute' && step.nodeTest.kind === 'name' && step.nodeTest.local !== '*') {
-        return attributeValue(ctx.node, step.nodeTest, ctx.adapter, ctx.resolver, html) !== undefined;
-      }
+  // Fast paths for a context-relative single step (allowing a leading `./`).
+  const step = singleRelativeStep(ast);
+  if (step !== null && step.predicates.length === 0) {
+    // `self::X` is pure name-test membership on the context node.
+    if (step.axis === 'self') {
+      return matchesNodeTest(ctx.node, step.nodeTest, 'self', ctx.adapter, ctx.resolver, html);
+    }
+    // `@name` existence is a single getAttribute, no attribute-axis node-set.
+    if (step.axis === 'attribute' && step.nodeTest.kind === 'name' && step.nodeTest.local !== '*') {
+      return attributeValue(ctx.node, step.nodeTest, ctx.adapter, ctx.resolver, html) !== undefined;
     }
   }
   return evaluatePath(ast, ctx).size > 0;

@@ -186,6 +186,17 @@ test('attribute comparison fast path matches node-set semantics', () => {
   assert.equal(evaluate(parse('//e[@a = @b]'), makeRootContext(pairDoc, adapter)).ordered(adapter).length, 1);
 });
 
+test('the `./@name` form (what Capybara emits) takes the same fast path as `@name`', () => {
+  // `./@id` is `self::node()` then the attribute step — equivalent to `@id`.
+  assert.deepEqual(labels('/root/a[./@id = "a1"]'), ['a#a1']);
+  assert.deepEqual(labels('/root/a[./@id != "a1"]'), ['a#a2']);
+  assert.deepEqual(labels('/root/a[./@missing != "x"]'), []); // absent: != is false
+  assert.deepEqual(labels('/root/a[./@id]'), ['a#a1', 'a#a2']); // existence
+  // A leading step other than self::node() (here self::a) is not collapsed; it
+  // still evaluates correctly via the normal path.
+  assert.deepEqual(labels('/root/a[self::a/@id = "a2"]'), ['a#a2']);
+});
+
 test('union in document order', () => {
   assert.deepEqual(labels('//c | //b'), ['b', 'b', 'c']);
 });
