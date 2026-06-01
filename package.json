@@ -1,6 +1,6 @@
 {
   "name": "xpathway",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Clean, standalone, XPath 1.0-compliant evaluation library with a pluggable DOM adapter.",
   "keywords": [
     "xpath",
