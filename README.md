@@ -120,3 +120,9 @@ nodes are not materialized by the target DOMs, so the `namespace::` axis and
 ```
 npm test     # node --test
 ```
+
+`test/conformance/` is the primary parity bar (an XPath 1.0 corpus plus the
+real shapes Capybara's `xpath` gem emits). `test/wpt/` runs vendored
+web-platform-tests XPath cases through a tiny zero-dependency testharness shim;
+WPT's own XPath coverage is minimal, so this is a thin gate rather than the main
+suite. `bench/bench.js` measures timing, scaling, and CPU hot spots.
