@@ -90,3 +90,16 @@ test('position() and last() interplay', () => {
   assert.deepEqual(strings('//book[position() = last()]/@id'), ['b3']);
   assert.deepEqual(strings('//book[position() != last()]/@id'), ['b1', 'b2']);
 });
+
+test('arithmetic, coercion, and number->string formatting', () => {
+  assert.equal(num('7 div 2'), 3.5);
+  assert.equal(num('5 mod 3'), 2);
+  assert.equal(num('-5 mod 3'), -2); // truncating remainder, sign of dividend
+  // number(node-set) coerces via string-value; arithmetic across the document.
+  assert.equal(num('sum(//price) div count(//book)'), 95 / 3);
+  // number -> string never uses exponential notation, and renders IEEE specials.
+  assert.equal(str('string(1 div 4)'), '0.25');
+  assert.equal(str('string(1 div 0)'), 'Infinity');
+  assert.equal(str('string(-1 div 0)'), '-Infinity');
+  assert.equal(str('string(0 div 0)'), 'NaN');
+});

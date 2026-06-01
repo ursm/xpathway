@@ -74,15 +74,17 @@ small contract (node handles are opaque to the library):
 | Group | Operations |
 |-------|------------|
 | Kind | `nodeType(n)` — 1 element, 2 attribute, 3 text, 7 PI, 8 comment, 9 document |
-| Tree | `parent(n)`, `childNodes(n)`, `firstChild(n)`, `nextSibling(n)`, `documentElement(doc)`, `ownerDocument(n)` |
-| Names | `localName(n)`, `namespaceURI(n)`, `prefix(n)`, `nodeName(n)` |
+| Tree | `parent(n)`, `childNodes(n)`, `ownerDocument(n)` |
+| Names | `localName(n)`, `namespaceURI(n)`, `nodeName(n)` |
 | Attributes | `attributes(el)`, `getAttribute(el, namespaceURI, localName)` |
 | String value | `stringValue(n)` — XPath `string(node)` |
 | Document order | `compareDocumentPosition(a, b)` — negative / 0 / positive |
 | Id | `getElementById(doc, id)` |
 | HTML | `isHtmlDocument(doc)` |
 
-An optional `previousSibling(n)` is used when present. See
+`nextSibling(n)` and `previousSibling(n)` are **optional** — supply them for the
+sibling/`following`/`preceding` axes and they are used directly; otherwise they
+are derived from `parent` + `childNodes`. See
 [`test/helpers/dom.js`](test/helpers/dom.js) for a complete, minimal reference
 adapter over a plain-object DOM.
 
