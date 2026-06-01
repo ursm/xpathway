@@ -4,3 +4,8 @@ REQUIREMENTS.md
 isolate-*.log
 *.cpuprofile
 bench/*.txt
+
+# Review/agent scratch scripts that have landed in the repo root before
+/audit_*.js
+/test_*.js
+/final_verification.js
