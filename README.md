@@ -19,7 +19,7 @@ staged conformance test suite, and the performance work needed on a custom JS DO
 ## Install
 
 ```
-npm install xpathway      # or: pnpm add, or a git/file dependency — registry publish is optional
+npm install xpathway      # or pnpm add xpathway
 ```
 
 Pure ESM, zero runtime dependencies, no Node built-ins — bundleable with esbuild
