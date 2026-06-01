@@ -186,11 +186,17 @@ function evaluateStep(step, inputNodes, ctx, html) {
 }
 
 // A predicate of this shape always evaluates to a node-set (never a number), so
-// it is a boolean filter, not a position test — and it only needs its *existence*,
-// which existsBoolean() can decide without materialising the set.
-function isNodeSetPredicate(ast) {
-  return ast.type === 'Path' || ast.type === 'Filter'
-    || (ast.type === 'Binary' && ast.op === 'union');
+// it is a boolean filter, not a position test — and its truth is just existence,
+// which existsBoolean() can decide without materialising the set. A union only
+// qualifies when *every* arm is itself a pure node-set; a union with a non-node-
+// set arm (e.g. `a | count(b)`) is malformed and must still raise a type error
+// through the normal evaluation path rather than being silently coerced.
+function isPureNodeSet(ast) {
+  if (ast.type === 'Path' || ast.type === 'Filter') return true;
+  if (ast.type === 'Binary' && ast.op === 'union') {
+    return isPureNodeSet(ast.left) && isPureNodeSet(ast.right);
+  }
+  return false;
 }
 
 // Filters `nodes` (in axis order) through each predicate in turn. Proximity
@@ -201,7 +207,7 @@ function applyPredicates(nodes, predicates, ctx, html) {
   let current = nodes;
   for (const predicate of predicates) {
     const size = current.length;
-    const existence = isNodeSetPredicate(predicate);
+    const existence = isPureNodeSet(predicate);
     const kept = [];
     for (let i = 0; i < current.length; i++) {
       const position = i + 1;
@@ -231,7 +237,8 @@ function existsBoolean(ast, ctx, html) {
   if (ast.type === 'Path') {
     return pathExists(ast, ctx, html);
   }
-  // Filter expressions (and anything else) fall back to full materialisation.
+  // The caller (isPureNodeSet) only routes pure node-sets here, so this is a
+  // Filter expression — materialise it and test non-emptiness.
   return toBoolean(evaluate(ast, ctx));
 }
 

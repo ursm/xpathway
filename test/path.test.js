@@ -136,9 +136,17 @@ test('union predicate is an existence test and composes with numeric predicates'
   // an <a> or <b> (existence), not a position test.
   assert.deepEqual(labels('//*[self::a | self::b]'), ['a#a1', 'b', 'a#a2', 'b']);
   assert.deepEqual(labels('//*[self::c]'), ['c']);
+  // A union arm that is not a self:: step exercises the evaluatePath fallback:
+  // kept iff the node is an <a> OR has a <b> child.
+  assert.deepEqual(labels('//*[self::a | child::b]'), ['a#a1', 'a#a2']);
   // Existence predicate followed by a positional one still works.
   assert.deepEqual(labels('/root/a[self::a][2]'), ['a#a2']);
-  assert.deepEqual(labels('/root/*[self::a or self::d][last()]'), ['d']);
+  assert.deepEqual(labels('/root/*[self::a | self::d][last()]'), ['d']);
+});
+
+test('a malformed union (non-node-set arm) still raises a type error', () => {
+  // The existence optimization must not silently coerce `c | 1` to a boolean.
+  assert.throws(() => select('//*[c | 1]'), /node-set/);
 });
 
 test('union in document order', () => {
