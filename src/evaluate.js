@@ -1,8 +1,7 @@
 import { NodeSet, isNodeSet, toBoolean, toNumber } from './types.js';
 import { compareEquality, compareRelational } from './compare.js';
 import { axisNodes } from './axes.js';
-import { matchesNodeTest, isHtmlDocument } from './nodetest.js';
-import { DOCUMENT } from './node-types.js';
+import { matchesNodeTest, isHtmlDocument, documentNodeOf } from './nodetest.js';
 import { withNode } from './context.js';
 import { XPathTypeError } from './errors.js';
 
@@ -101,10 +100,6 @@ export function unionNodeSets(a, b) {
 
 // --- Location paths and steps (REC §2) -------------------------------------
 
-function documentNode(node, adapter) {
-  return adapter.nodeType(node) === DOCUMENT ? node : adapter.ownerDocument(node);
-}
-
 function evaluatePath(ast, ctx) {
   const { adapter } = ctx;
   const html = isHtmlDocument(ctx.node, adapter);
@@ -113,7 +108,7 @@ function evaluatePath(ast, ctx) {
   if (ast.root == null) {
     current = [ctx.node];
   } else if (ast.root.type === 'Root') {
-    const doc = documentNode(ctx.node, adapter);
+    const doc = documentNodeOf(ctx.node, adapter);
     current = doc ? [doc] : [];
   } else {
     const value = evaluate(ast.root, ctx);

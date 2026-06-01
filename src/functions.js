@@ -1,14 +1,18 @@
 import {
   NodeSet, isNodeSet, toBoolean, toNumber, toStr, stringToNumber,
 } from './types.js';
-import {
-  ELEMENT, ATTRIBUTE, PROCESSING_INSTRUCTION, DOCUMENT, XML_NS,
-} from './node-types.js';
+import { ELEMENT, ATTRIBUTE, PROCESSING_INSTRUCTION, XML_NS } from './node-types.js';
+import { documentNodeOf } from './nodetest.js';
 import { XPathTypeError } from './errors.js';
 
 // XPath 1.0 core function library (REC §4). Each function is `fn(ctx, args)`,
 // where `args` are already-evaluated XPath values (boolean | number | string |
 // NodeSet). Functions read the context node / position / size from `ctx`.
+//
+// String functions (substring, string-length, translate) operate on UTF-16 code
+// units, not Unicode code points. The pure XPath 1.0 text counts UCS characters,
+// but the compatibility target is the browser, whose XPath works on DOMString
+// (UTF-16) — §3 makes the observed Chromium behaviour authoritative.
 
 function arity(name, args, min, max = min) {
   if (args.length < min || args.length > max) {
@@ -22,10 +26,6 @@ function requireNodeSet(name, value) {
     throw new XPathTypeError(`${name}() requires a node-set argument`);
   }
   return value;
-}
-
-function documentOf(node, adapter) {
-  return adapter.nodeType(node) === DOCUMENT ? node : adapter.ownerDocument(node);
 }
 
 // The node a node-set function operates on: the first node (document order) of
@@ -72,7 +72,7 @@ export const coreFunctions = {
   id: (ctx, args) => {
     arity('id', args, 1);
     const { adapter } = ctx;
-    const doc = documentOf(ctx.node, adapter);
+    const doc = documentNodeOf(ctx.node, adapter);
     let tokens;
     if (isNodeSet(args[0])) {
       tokens = args[0].nodes.flatMap((n) => splitWhitespace(adapter.stringValue(n)));

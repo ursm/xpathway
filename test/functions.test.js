@@ -46,6 +46,8 @@ test('count', () => {
 test('id', () => {
   assert.deepEqual(ids("id('x1')"), ['x1']);
   assert.deepEqual(ids("id('x1 x2')"), ['x1', 'x2']);
+  // Result is materialised in document order regardless of token order.
+  assert.deepEqual(ids("id('x2 x1')"), ['x1', 'x2']);
   assert.deepEqual(ids("id('missing')"), []);
 });
 

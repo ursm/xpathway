@@ -92,8 +92,14 @@ export function matchesNodeTest(node, nodeTest, axis, adapter, resolver, html) {
   return ns === uri && local === nodeTest.local;
 }
 
+// The document (root) node owning `node`, or `node` itself if it is the
+// document. Null for a detached node with no owner document.
+export function documentNodeOf(node, adapter) {
+  return adapter.nodeType(node) === DOCUMENT ? node : adapter.ownerDocument(node);
+}
+
 // True when `node` belongs to an HTML document (§6), via the adapter.
 export function isHtmlDocument(node, adapter) {
-  const doc = adapter.nodeType(node) === DOCUMENT ? node : adapter.ownerDocument(node);
+  const doc = documentNodeOf(node, adapter);
   return doc ? !!adapter.isHtmlDocument(doc) : false;
 }
