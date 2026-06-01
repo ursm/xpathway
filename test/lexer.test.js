@@ -81,6 +81,9 @@ test('dot and dotdot vs number', () => {
   assert.deepEqual(types('.'), [T.DOT]);
   assert.deepEqual(types('..'), [T.DOTDOT]);
   assert.deepEqual(types('./a'), [T.DOT, T.SLASH, T.NAMETEST]);
+  // A trailing decimal point on an integer must not swallow the first `.` of `..`.
+  assert.deepEqual(values('1..2'), [[T.NUMBER, 1], [T.DOTDOT, '..'], [T.NUMBER, 2]]);
+  assert.deepEqual(values('10.'), [[T.NUMBER, 10]]);
 });
 
 test('string literals with both quote styles', () => {

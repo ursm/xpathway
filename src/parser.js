@@ -26,14 +26,25 @@ export const AXES = new Set([
 const STEP_START = new Set([T.AT, T.AXISNAME, T.NAMETEST, T.NODETYPE, T.DOT, T.DOTDOT]);
 const PRIMARY_START = new Set([T.LPAREN, T.LITERAL, T.NUMBER, T.FUNCNAME, T.VARREF]);
 
+// Operator maps per precedence level (hoisted so they are allocated once, not
+// rebuilt on every parse call).
+const OR_OPS = { [T.OR]: 'or' };
+const AND_OPS = { [T.AND]: 'and' };
+const EQUALITY_OPS = { [T.EQ]: '=', [T.NE]: '!=' };
+const RELATIONAL_OPS = { [T.LT]: '<', [T.LE]: '<=', [T.GT]: '>', [T.GE]: '>=' };
+const ADDITIVE_OPS = { [T.PLUS]: '+', [T.MINUS]: '-' };
+const MULTIPLICATIVE_OPS = { [T.MULTIPLY]: '*', [T.DIV]: 'div', [T.MOD]: 'mod' };
+
+// A no-predicate step over a node-type test (self::node(), parent::node(),
+// descendant-or-self::node()). Returns a fresh object each call so steps never
+// share mutable state.
+function nodeTypeStep(axis, name) {
+  return { type: 'Step', axis, nodeTest: { kind: 'type', name, literal: null }, predicates: [] };
+}
+
 // `//` desugars to `/descendant-or-self::node()/` (REC §2.5).
 function descendantOrSelfStep() {
-  return {
-    type: 'Step',
-    axis: 'descendant-or-self',
-    nodeTest: { kind: 'type', name: 'node', literal: null },
-    predicates: [],
-  };
+  return nodeTypeStep('descendant-or-self', 'node');
 }
 
 class Parser {
@@ -88,31 +99,27 @@ class Parser {
   }
 
   parseOr() {
-    return this.parseBinaryLeft(this.parseAnd, { [T.OR]: 'or' });
+    return this.parseBinaryLeft(this.parseAnd, OR_OPS);
   }
 
   parseAnd() {
-    return this.parseBinaryLeft(this.parseEquality, { [T.AND]: 'and' });
+    return this.parseBinaryLeft(this.parseEquality, AND_OPS);
   }
 
   parseEquality() {
-    return this.parseBinaryLeft(this.parseRelational, { [T.EQ]: '=', [T.NE]: '!=' });
+    return this.parseBinaryLeft(this.parseRelational, EQUALITY_OPS);
   }
 
   parseRelational() {
-    return this.parseBinaryLeft(this.parseAdditive, {
-      [T.LT]: '<', [T.LE]: '<=', [T.GT]: '>', [T.GE]: '>=',
-    });
+    return this.parseBinaryLeft(this.parseAdditive, RELATIONAL_OPS);
   }
 
   parseAdditive() {
-    return this.parseBinaryLeft(this.parseMultiplicative, { [T.PLUS]: '+', [T.MINUS]: '-' });
+    return this.parseBinaryLeft(this.parseMultiplicative, ADDITIVE_OPS);
   }
 
   parseMultiplicative() {
-    return this.parseBinaryLeft(this.parseUnary, {
-      [T.MULTIPLY]: '*', [T.DIV]: 'div', [T.MOD]: 'mod',
-    });
+    return this.parseBinaryLeft(this.parseUnary, MULTIPLICATIVE_OPS);
   }
 
   // UnaryExpr ::= UnionExpr | '-' UnaryExpr
@@ -191,11 +198,11 @@ class Parser {
   parseStep() {
     if (this.is(T.DOT)) {
       this.next();
-      return { type: 'Step', axis: 'self', nodeTest: { kind: 'type', name: 'node', literal: null }, predicates: [] };
+      return nodeTypeStep('self', 'node');
     }
     if (this.is(T.DOTDOT)) {
       this.next();
-      return { type: 'Step', axis: 'parent', nodeTest: { kind: 'type', name: 'node', literal: null }, predicates: [] };
+      return nodeTypeStep('parent', 'node');
     }
 
     let axis = 'child';

@@ -84,9 +84,10 @@ function isNameStart(ch) {
   return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch === '_' || ch.charCodeAt(0) >= 0x80;
 }
 
-// XML NameChar (sans ':').
+// XML NameChar (sans ':'). The >= 0x80 branch in isNameStart already covers the
+// non-ASCII NameChar additions (combining marks, U+00B7, etc.).
 function isNameChar(ch) {
-  return isNameStart(ch) || isDigit(ch) || ch === '-' || ch === '.' || ch === '·';
+  return isNameStart(ch) || isDigit(ch) || ch === '-' || ch === '.';
 }
 
 function isWhitespace(ch) {
@@ -242,7 +243,8 @@ export function tokenize(expr) {
         value += expr[i];
         i += 1;
       }
-      if (expr[i] === '.') {
+      // Consume a decimal point, but not the first `.` of a `..` (parent) token.
+      if (expr[i] === '.' && expr[i + 1] !== '.') {
         value += '.';
         i += 1;
         while (i < n && isDigit(expr[i])) {
@@ -336,16 +338,22 @@ export function tokenize(expr) {
   return tokens;
 }
 
-// Reads an NCName starting at `start`; returns { value, end } or null.
-function readQNameString(expr, start) {
+// Index past the NCName starting at `start` (assumes isNameStart(expr[start])).
+function ncNameEnd(expr, start) {
   const n = expr.length;
-  if (start >= n || !isNameStart(expr[start])) return null;
   let i = start + 1;
   while (i < n && isNameChar(expr[i])) i++;
+  return i;
+}
+
+// Reads a (possibly prefixed) name starting at `start`; returns { value, end }
+// or null. Used for `$QName` variable references.
+function readQNameString(expr, start) {
+  if (start >= expr.length || !isNameStart(expr[start])) return null;
+  let i = ncNameEnd(expr, start);
   // Optional `:local` for a prefixed variable name.
   if (expr[i] === ':' && expr[i + 1] !== ':' && isNameStart(expr[i + 1] ?? '')) {
-    i += 1;
-    while (i < n && isNameChar(expr[i])) i++;
+    i = ncNameEnd(expr, i + 1);
   }
   return { value: expr.slice(start, i), end: i };
 }
@@ -353,9 +361,7 @@ function readQNameString(expr, start) {
 // Reads a NameTest body: NCName, `NCName:local`, or `NCName:*`.
 // Returns { prefix: string|null, local: string|'*', end }.
 function readName(expr, start) {
-  const n = expr.length;
-  let i = start + 1;
-  while (i < n && isNameChar(expr[i])) i++;
+  const i = ncNameEnd(expr, start);
   const first = expr.slice(start, i);
 
   // A `:` that is not `::` introduces a QName local part (or `*`).
@@ -364,8 +370,7 @@ function readName(expr, start) {
       return { prefix: first, local: '*', end: i + 2 };
     }
     if (isNameStart(expr[i + 1] ?? '')) {
-      let j = i + 2;
-      while (j < n && isNameChar(expr[j])) j++;
+      const j = ncNameEnd(expr, i + 1);
       return { prefix: first, local: expr.slice(i + 1, j), end: j };
     }
     throw new XPathSyntaxError(`expected name after ':' in '${first}:'`, i);
