@@ -102,12 +102,19 @@ export function unionNodeSets(a, b) {
 
 function evaluatePath(ast, ctx) {
   const { adapter } = ctx;
+
+  // An absolute location path is independent of the outer context node, so its
+  // value is invariant for the whole evaluation. Memoize it by AST identity so a
+  // predicate like `//label[@for = ...]` runs once, not once per candidate (§7).
+  const absolute = ast.root != null && ast.root.type === 'Root';
+  if (absolute && ctx.cache.has(ast)) return ctx.cache.get(ast);
+
   const html = isHtmlDocument(ctx.node, adapter);
 
   let current;
   if (ast.root == null) {
     current = [ctx.node];
-  } else if (ast.root.type === 'Root') {
+  } else if (absolute) {
     const doc = documentNodeOf(ctx.node, adapter);
     current = doc ? [doc] : [];
   } else {
@@ -121,7 +128,9 @@ function evaluatePath(ast, ctx) {
   for (const step of ast.steps) {
     current = evaluateStep(step, current, ctx, html);
   }
-  return new NodeSet(current, false);
+  const result = new NodeSet(current, false);
+  if (absolute) ctx.cache.set(ast, result);
+  return result;
 }
 
 // Applies one step to a whole input node-set, returning the de-duplicated union

@@ -1,6 +1,7 @@
 import {
   ELEMENT, ATTRIBUTE, TEXT, PROCESSING_INSTRUCTION, COMMENT, DOCUMENT, XML_NS, XHTML_NS,
 } from './node-types.js';
+import { XPathTypeError } from './errors.js';
 
 // Node tests (REC §2.3) plus the HTML compatibility layer (§6).
 
@@ -86,7 +87,7 @@ export function matchesNodeTest(node, nodeTest, axis, adapter, resolver, html) {
   // Prefixed name test: the prefix must resolve, then namespace must match.
   const uri = resolvePrefix(resolver, nodeTest.prefix);
   if (uri == null) {
-    throw new Error(`unresolved namespace prefix '${nodeTest.prefix}'`);
+    throw new XPathTypeError(`unresolved namespace prefix '${nodeTest.prefix}'`);
   }
   if (nodeTest.local === '*') return ns === uri;
   return ns === uri && local === nodeTest.local;
