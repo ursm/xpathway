@@ -1,6 +1,6 @@
 import { NodeSet, isNodeSet, toBoolean, toNumber } from './types.js';
 import { compareEquality, compareRelational, compareValueLiteral } from './compare.js';
-import { axisNodes } from './axes.js';
+import { resolveAxis, descendantsMatching } from './axes.js';
 import { matchesNodeTest, documentNodeOf, attributeValue } from './nodetest.js';
 import { withNode } from './context.js';
 import { XPathTypeError } from './errors.js';
@@ -221,9 +221,17 @@ const DISJOINT_AXES = new Set(['self', 'child', 'attribute', 'namespace']);
 // Applies one step to a whole input node-set, returning the union of the
 // per-node results, de-duplicated only when the axis can actually produce
 // overlaps across multiple input nodes.
+//
+// The axis result is treated as READ-ONLY: matches are copied into the fresh
+// `out` array (and predicate filtering allocates its own array), so the axis
+// function may hand back an adapter-owned array without copying it (see axes.js).
 function evaluateStep(step, inputNodes, ctx, html) {
-  const { adapter } = ctx;
   const out = [];
+  // No input nodes (a prior step matched nothing) → no work, and nothing to set
+  // up: skip the per-step closure/array allocation below entirely.
+  if (inputNodes.length === 0) return out;
+
+  const { adapter } = ctx;
   const seen = inputNodes.length > 1 && !DISJOINT_AXES.has(step.axis) ? new Set() : null;
 
   // `node()` matches every node, so the per-candidate filter is a wasteful full
@@ -232,12 +240,37 @@ function evaluateStep(step, inputNodes, ctx, html) {
   const test = step.nodeTest;
   const matchesAll = test.kind === 'type' && test.name === 'node';
 
+  // For a selective name test on a descendant axis, fuse the test into the tree
+  // walk (descendantsMatching) so the full descendant set is never built just to
+  // be filtered. Only descendant/descendant-or-self are fused: `child` has no
+  // intermediate set to avoid, and `following`/`preceding` must materialise then
+  // sort, so streaming the filter buys nothing. The match closure is loop-
+  // invariant — build it once.
+  const fuseDescendant = !matchesAll
+    && (step.axis === 'descendant' || step.axis === 'descendant-or-self');
+  const includeSelf = step.axis === 'descendant-or-self';
+  const match = fuseDescendant
+    ? (n) => matchesNodeTest(n, test, step.axis, adapter, ctx.resolver, html)
+    : null;
+  // Resolve the axis function once per step rather than per input node.
+  const axisFn = fuseDescendant ? null : resolveAxis(step.axis);
+
+  // Predicate purity (existence-filter vs position test) depends only on the
+  // predicate AST, so classify once per step instead of once per input node.
+  const predicates = step.predicates;
+  const purity = predicates.length ? predicates.map(isPureNodeSet) : null;
+
   for (const node of inputNodes) {
-    let candidates = axisNodes(step.axis, node, adapter);
-    if (!matchesAll) {
-      candidates = candidates.filter((n) => matchesNodeTest(n, test, step.axis, adapter, ctx.resolver, html));
+    let candidates;
+    if (fuseDescendant) {
+      candidates = descendantsMatching(node, adapter, match, includeSelf);
+    } else {
+      candidates = axisFn(node, adapter);
+      if (!matchesAll) {
+        candidates = candidates.filter((n) => matchesNodeTest(n, test, step.axis, adapter, ctx.resolver, html));
+      }
     }
-    candidates = applyPredicates(candidates, step.predicates, ctx, html);
+    if (purity) candidates = applyPredicates(candidates, predicates, purity, ctx, html);
     if (seen) {
       for (const n of candidates) {
         if (!seen.has(n)) {
@@ -270,11 +303,12 @@ function isPureNodeSet(ast) {
 // position is the node's 1-based index in the current axis-ordered list; a
 // numeric predicate selects that position, any other value is taken as a boolean
 // (REC §2.4).
-function applyPredicates(nodes, predicates, ctx, html) {
+function applyPredicates(nodes, predicates, purity, ctx, html) {
   let current = nodes;
-  for (const predicate of predicates) {
+  for (let p = 0; p < predicates.length; p++) {
+    const predicate = predicates[p];
+    const existence = purity[p];
     const size = current.length;
-    const existence = isPureNodeSet(predicate);
     const kept = [];
     for (let i = 0; i < current.length; i++) {
       const position = i + 1;
@@ -333,7 +367,8 @@ function evaluateFilter(ast, ctx) {
     throw new XPathTypeError('predicate applied to a non-node-set value');
   }
   const ordered = value.ordered(ctx.adapter).slice();
-  return new NodeSet(applyPredicates(ordered, ast.predicates, ctx, ctx.html), true);
+  const purity = ast.predicates.map(isPureNodeSet);
+  return new NodeSet(applyPredicates(ordered, ast.predicates, purity, ctx, ctx.html), true);
 }
 
 function evaluateFunction(ast, ctx) {

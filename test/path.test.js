@@ -69,6 +69,25 @@ test('descendant and descendant-or-self', () => {
   assert.deepEqual(labels('/root/descendant-or-self::a'), ['a#a1', 'a#a2']);
 });
 
+test('axis results are not mutated when the node-set is sorted in place', () => {
+  // Axes hand back adapter-owned arrays without copying (no defensive slice);
+  // evaluateStep must treat them as read-only. The reference adapter returns the
+  // live `childNodes` / `attributes` arrays, so a stray in-place sort would
+  // reorder the DOM itself. Force a sort (via ordered()) over child / attribute
+  // axis results and assert the underlying arrays are untouched.
+  const childArray = fx.root.childNodes;
+  const before = childArray.slice();
+  select('/root/node()'); // builds + sorts a node-set over root's children
+  assert.equal(fx.root.childNodes, childArray, 'childNodes array replaced');
+  assert.deepEqual(fx.root.childNodes, before, 'childNodes reordered/mutated');
+
+  const attrArray = fx.a1.attributes;
+  const attrsBefore = attrArray.slice();
+  select('/root/a/@*');
+  assert.equal(fx.a1.attributes, attrArray, 'attributes array replaced');
+  assert.deepEqual(fx.a1.attributes, attrsBefore, 'attributes reordered/mutated');
+});
+
 test('parent and ..', () => {
   assert.deepEqual(labels('..', fx.b1), ['a#a1']);
   assert.deepEqual(labels('parent::*', fx.f), ['e']);
