@@ -8,7 +8,9 @@ import { coreFunctions } from './functions.js';
 // context. It holds the results of context-independent absolute location paths
 // so they are computed once per document rather than re-run inside predicate
 // loops (§7 hoisting). It is safe because the DOM is immutable during a single
-// evaluation.
+// evaluation. A context is intended for a single document; each cache entry also
+// records its document, so reusing a context across documents recomputes rather
+// than returning a stale result.
 export function makeRootContext(node, adapter, { resolver = null, functions = coreFunctions } = {}) {
   return { node, position: 1, size: 1, adapter, resolver, functions, cache: new Map() };
 }

@@ -34,6 +34,18 @@ test('a fresh evaluation gets a fresh cache', () => {
   );
 });
 
+test('the absolute-path cache is document-keyed (no cross-document leakage)', () => {
+  // A context (and its cache) reused across documents must not return the first
+  // document's nodes for the second.
+  const other = doc(element('root', {}, [element('item'), element('item')]));
+  const ast = parse('//item');
+  const ctx = makeRootContext(fixture, adapter);
+
+  assert.equal(evaluate(ast, ctx).size, 3); // fixture has 3 items
+  ctx.node = other; // embedder reuses the context against another document
+  assert.equal(evaluate(ast, ctx).size, 2); // recomputed for `other`, not stale 3
+});
+
 test('an absolute sub-path inside a predicate is computed once, not per candidate', () => {
   // Count base-adapter string-value extractions; the §7 memoizing adapter should
   // collapse repeated reads of the same node to a single underlying call.

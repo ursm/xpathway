@@ -104,10 +104,16 @@ function evaluatePath(ast, ctx) {
   const { adapter } = ctx;
 
   // An absolute location path is independent of the outer context node, so its
-  // value is invariant for the whole evaluation. Memoize it by AST identity so a
+  // value is invariant for one document. Memoize it by AST identity so a
   // predicate like `//label[@for = ...]` runs once, not once per candidate (§7).
+  // The cache entry records its document so that a context reused across
+  // documents (an embedder mutating ctx.node) can never get a stale result.
   const absolute = ast.root != null && ast.root.type === 'Root';
-  if (absolute && ctx.cache.has(ast)) return ctx.cache.get(ast);
+  const doc = absolute ? documentNodeOf(ctx.node, adapter) : null;
+  if (absolute) {
+    const cached = ctx.cache.get(ast);
+    if (cached && cached.doc === doc) return cached.value;
+  }
 
   const html = isHtmlDocument(ctx.node, adapter);
 
@@ -115,7 +121,6 @@ function evaluatePath(ast, ctx) {
   if (ast.root == null) {
     current = [ctx.node];
   } else if (absolute) {
-    const doc = documentNodeOf(ctx.node, adapter);
     current = doc ? [doc] : [];
   } else {
     const value = evaluate(ast.root, ctx);
@@ -129,7 +134,7 @@ function evaluatePath(ast, ctx) {
     current = evaluateStep(step, current, ctx, html);
   }
   const result = new NodeSet(current, false);
-  if (absolute) ctx.cache.set(ast, result);
+  if (absolute) ctx.cache.set(ast, { doc, value: result });
   return result;
 }
 

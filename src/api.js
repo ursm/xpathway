@@ -212,7 +212,9 @@ class XPathExpression {
     this._exceptions = exceptions;
   }
 
-  evaluate(contextNode, resultType = ANY_TYPE) {
+  // `result` (DOM's reuse-an-existing-XPathResult argument) is accepted for
+  // signature parity but ignored — a fresh XPathResult is always returned.
+  evaluate(contextNode, resultType = ANY_TYPE, result = null) { // eslint-disable-line no-unused-vars
     const adapter = memoizingAdapter(this._adapter);
     const ctx = makeRootContext(contextNode, adapter, { resolver: this._resolver });
     let value;
@@ -235,7 +237,8 @@ function makeNSResolver(node, adapter) {
       for (let n = node; n; n = adapter.parent(n)) {
         if (adapter.nodeType(n) !== ELEMENT) continue;
         for (const attr of adapter.attributes(n)) {
-          if (adapter.nodeName(attr) === wanted) return attr.value ?? adapter.stringValue(attr);
+          // string-value of an attribute node is its value (§5).
+          if (adapter.nodeName(attr) === wanted) return adapter.stringValue(attr);
         }
       }
       return null;
@@ -257,12 +260,14 @@ export function createEvaluator(adapter, options = {}) {
     } catch (error) {
       throw mapError(error, exceptions);
     }
-    return new XPathExpression(ast, normalizeResolver(resolver), adapter, exceptions);
+    // resolvePrefix() in nodetest.js accepts the DOM resolver forms (null, a
+    // function, or an object with lookupNamespaceURI) directly.
+    return new XPathExpression(ast, resolver ?? null, adapter, exceptions);
   }
 
   return {
-    evaluate(expression, contextNode, resolver, resultType = ANY_TYPE) {
-      return compile(expression, resolver).evaluate(contextNode, resultType);
+    evaluate(expression, contextNode, resolver, resultType = ANY_TYPE, result = null) {
+      return compile(expression, resolver).evaluate(contextNode, resultType, result);
     },
     createExpression(expression, resolver) {
       return compile(expression, resolver);
@@ -271,11 +276,4 @@ export function createEvaluator(adapter, options = {}) {
       return makeNSResolver(node, adapter);
     },
   };
-}
-
-// Accepts the DOM forms of a resolver: null, a function, or an object with
-// lookupNamespaceURI. resolvePrefix() in nodetest.js understands all three, so
-// we just pass it through.
-function normalizeResolver(resolver) {
-  return resolver ?? null;
 }
