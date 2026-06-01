@@ -1,0 +1,21 @@
+{
+  "name": "xpathway",
+  "version": "0.0.0",
+  "description": "Clean, standalone, XPath 1.0-compliant evaluation library with a pluggable DOM adapter.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "main": "./src/index.js",
+  "module": "./src/index.js",
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}
