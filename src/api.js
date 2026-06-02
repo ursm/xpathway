@@ -170,9 +170,13 @@ function memoizingAdapter(adapter) {
   const memo = new Map();
   const wrapper = Object.create(adapter);
   wrapper.stringValue = (node) => {
-    if (memo.has(node)) return memo.get(node);
-    const value = adapter.stringValue(node);
-    memo.set(node, value);
+    // string-value is always a string (REC §4.2 / §5), so `undefined` from get()
+    // unambiguously means "not yet computed" — one lookup on the hot hit path.
+    let value = memo.get(node);
+    if (value === undefined) {
+      value = adapter.stringValue(node);
+      memo.set(node, value);
+    }
     return value;
   };
   return wrapper;

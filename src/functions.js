@@ -49,10 +49,66 @@ function xpathRound(x) {
   return Math.floor(x + 0.5);
 }
 
-const WS_RUN = /[ \t\r\n]+/g;
+// XPath whitespace is exactly #x20 | #x9 | #xD | #xA (REC §3.7) — NOT JS's \s,
+// which also matches NBSP, the Unicode space separators, U+2028/9, etc.
+function isXmlWhitespace(c) {
+  return c === 0x20 || c === 0x09 || c === 0x0d || c === 0x0a;
+}
 
+// Splits on runs of XPath whitespace, dropping empty tokens (used by id()).
 function splitWhitespace(s) {
-  return s.split(WS_RUN).filter((t) => t.length > 0);
+  const tokens = [];
+  const n = s.length;
+  let i = 0;
+  while (i < n) {
+    while (i < n && isXmlWhitespace(s.charCodeAt(i))) i += 1;
+    const start = i;
+    while (i < n && !isXmlWhitespace(s.charCodeAt(i))) i += 1;
+    if (i > start) tokens.push(s.slice(start, i));
+  }
+  return tokens;
+}
+
+// normalize-space (REC §4.2): strip leading/trailing whitespace and collapse
+// interior runs to a single U+0020. A single linear scan over the (verified)
+// XPath whitespace set, with a fast path that returns the trimmed slice
+// untouched when the text is already normalized (the common case — most
+// string-values have no runs and no leading/trailing space).
+function normalizeSpace(s) {
+  const n = s.length;
+  let start = 0;
+  while (start < n && isXmlWhitespace(s.charCodeAt(start))) start += 1;
+  let end = n;
+  while (end > start && isXmlWhitespace(s.charCodeAt(end - 1))) end -= 1;
+
+  // Within [start, end) a whitespace char is interior (s[end-1] is non-ws after
+  // trimming): it is "dirty" unless it is a lone U+0020 followed by a non-ws
+  // char still inside the region.
+  let dirty = false;
+  for (let i = start; i < end; i += 1) {
+    const c = s.charCodeAt(i);
+    if (isXmlWhitespace(c) && (c !== 0x20 || (i + 1 < end && isXmlWhitespace(s.charCodeAt(i + 1))))) {
+      dirty = true;
+      break;
+    }
+  }
+  if (!dirty) return s.slice(start, end);
+
+  let out = '';
+  let pendingSpace = false;
+  for (let i = start; i < end; i += 1) {
+    const c = s.charCodeAt(i);
+    if (isXmlWhitespace(c)) {
+      pendingSpace = true;
+      continue;
+    }
+    if (pendingSpace) {
+      out += ' ';
+      pendingSpace = false;
+    }
+    out += s[i];
+  }
+  return out;
 }
 
 export const coreFunctions = {
@@ -157,9 +213,7 @@ export const coreFunctions = {
     return out;
   },
   'string-length': (ctx, args) => targetString('string-length', ctx, args).length,
-  'normalize-space': (ctx, args) => targetString('normalize-space', ctx, args)
-    .replace(WS_RUN, ' ')
-    .replace(/^ | $/g, ''),
+  'normalize-space': (ctx, args) => normalizeSpace(targetString('normalize-space', ctx, args)),
   translate: (ctx, args) => {
     arity('translate', args, 3);
     const s = toStr(args[0], ctx.adapter);

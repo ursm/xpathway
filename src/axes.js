@@ -155,11 +155,3 @@ export function resolveAxis(axis) {
   if (!fn) throw new Error(`unsupported axis: ${axis}`);
   return fn;
 }
-
-// Forward axes yield candidates already in document order. Knowing this lets a
-// single-step location path skip a re-sort (a NodeSet built from a forward step
-// is `sorted: true`).
-export const FORWARD_AXES = new Set([
-  'self', 'child', 'descendant', 'descendant-or-self',
-  'following-sibling', 'following', 'attribute', 'namespace',
-]);

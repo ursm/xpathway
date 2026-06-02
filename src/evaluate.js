@@ -103,15 +103,29 @@ function isSelfNodeStep(step) {
     && step.predicates.length === 0;
 }
 
+// Structural classifications below are pure functions of the immutable parse
+// tree, but run per candidate node in the predicate hot loop (§7). They are
+// memoized in module-level WeakMaps keyed by the AST node — amortised across
+// candidates and across evaluations, without mutating (and thus keeping
+// shareable/serializable) the parsed AST. WeakMap entries are released with the
+// cached AST. A stored `null` means "classified, not of the fast-path shape";
+// `undefined` from get() means "not yet classified".
+const singleStepCache = new WeakMap();
+const attrShapeCache = new WeakMap();
+
 // The single effective step of a context-relative path, tolerating a leading
 // `self::node()`: Capybara emits `./@id` (a `.` step then the attribute step),
 // which is equivalent to the bare `@id`. Returns the step, or null.
 function singleRelativeStep(ast) {
   if (ast.type !== 'Path' || ast.root != null) return null;
+  const cached = singleStepCache.get(ast);
+  if (cached !== undefined) return cached;
   const { steps } = ast;
-  if (steps.length === 1) return steps[0];
-  if (steps.length === 2 && isSelfNodeStep(steps[0])) return steps[1];
-  return null;
+  let result = null;
+  if (steps.length === 1) result = steps[0];
+  else if (steps.length === 2 && isSelfNodeStep(steps[0])) result = steps[1];
+  singleStepCache.set(ast, result);
+  return result;
 }
 
 // The name test of a relative `@name` / `./@name` step (concrete, non-`*`, no
@@ -130,9 +144,13 @@ function constantOperand(ast) {
   return undefined;
 }
 
-// Returns the boolean result of `@name <op> literal`, or null when the
-// expression is not of that shape (so the caller falls back to full evaluation).
-function tryAttributeComparison(ast, ctx) {
+// Classifies a comparison as `@name <op> literal`, returning {nameTest, op,
+// literal} with `op` already oriented so the attribute is the left-hand side, or
+// null when the expression is not of that shape. Memoized (see above) since it
+// is re-examined per candidate in the predicate hot loop.
+function attributeComparisonShape(ast) {
+  const cached = attrShapeCache.get(ast);
+  if (cached !== undefined) return cached;
   let nameTest = simpleAttributeNameTest(ast.left);
   let literal = nameTest === null ? undefined : constantOperand(ast.right);
   let attributeOnLeft = true;
@@ -141,19 +159,35 @@ function tryAttributeComparison(ast, ctx) {
     literal = nameTest === null ? undefined : constantOperand(ast.left);
     attributeOnLeft = false;
   }
-  if (nameTest === null || literal === undefined) return null;
+  let shape = null;
+  if (nameTest !== null && literal !== undefined) {
+    const op = !attributeOnLeft && FLIP_REL[ast.op] ? FLIP_REL[ast.op] : ast.op;
+    shape = { nameTest, op, literal };
+  }
+  attrShapeCache.set(ast, shape);
+  return shape;
+}
 
-  const value = attributeValue(ctx.node, nameTest, ctx.adapter, ctx.resolver, ctx.html);
+// Returns the boolean result of `@name <op> literal`, or null when the
+// expression is not of that shape (so the caller falls back to full evaluation).
+function tryAttributeComparison(ast, ctx) {
+  const shape = attributeComparisonShape(ast);
+  if (shape === null) return null;
+
+  const value = attributeValue(ctx.node, shape.nameTest, ctx.adapter, ctx.resolver, ctx.html);
   // An absent attribute is the empty node-set: every comparison with a primitive
   // is false (existential over no nodes), including `!=`.
   if (value === undefined) return false;
 
-  const op = !attributeOnLeft && FLIP_REL[ast.op] ? FLIP_REL[ast.op] : ast.op;
-  return compareValueLiteral(op, value, literal);
+  return compareValueLiteral(shape.op, value, shape.literal);
 }
 
 // Set union by node identity; document order is established lazily when observed.
 export function unionNodeSets(a, b) {
+  // Union with an empty side is identity — return a private copy of the other
+  // side (NodeSet takes ownership and may sort in place) without building a Set.
+  if (b.nodes.length === 0) return new NodeSet(a.nodes.slice(), false);
+  if (a.nodes.length === 0) return new NodeSet(b.nodes.slice(), false);
   const seen = new Set(a.nodes);
   const nodes = a.nodes.slice();
   for (const n of b.nodes) {
@@ -246,6 +280,12 @@ function evaluateStep(step, inputNodes, ctx, html) {
   // intermediate set to avoid, and `following`/`preceding` must materialise then
   // sort, so streaming the filter buys nothing. The match closure is loop-
   // invariant — build it once.
+  //
+  // This composes with the parse-time rewrite in optimize.js: that collapses
+  // `//E` (descendant-or-self::node()/child::E) into `descendant::E`, and this
+  // then streams the name test into the single walk. Both layers are needed —
+  // optimize.js also leaves explicit `descendant::E` steps and the unfusable
+  // positional cases (e.g. `//E[1]`) for this runtime path to handle.
   const fuseDescendant = !matchesAll
     && (step.axis === 'descendant' || step.axis === 'descendant-or-self');
   const includeSelf = step.axis === 'descendant-or-self';
@@ -305,14 +345,28 @@ function isPureNodeSet(ast) {
 // (REC §2.4).
 function applyPredicates(nodes, predicates, purity, ctx, html) {
   let current = nodes;
+  // One reusable child context for this frame: a predicate is evaluated
+  // synchronously and never retains the context object (the only values it can
+  // produce are node-sets/primitives, which hold nodes, not contexts), and any
+  // nested evaluation builds its own context — so mutating a single object per
+  // candidate is safe and avoids an allocation per candidate (REC §2.4 reads
+  // node/position/size eagerly). Each applyPredicates frame gets its own object,
+  // so re-entrant evaluation never aliases a live parent context.
+  const predCtx = withNode(ctx, ctx.node, 1, 1);
   for (let p = 0; p < predicates.length; p++) {
     const predicate = predicates[p];
     const existence = purity[p];
     const size = current.length;
-    const kept = [];
-    for (let i = 0; i < current.length; i++) {
+    predCtx.size = size;
+    // Defer allocating the output array until the first node is dropped; a
+    // predicate that keeps every candidate (e.g. [not(./@type='submit' or ...)]
+    // over a node-set) then reuses `current` with no copy.
+    let kept = null;
+    for (let i = 0; i < size; i++) {
+      const node = current[i];
       const position = i + 1;
-      const predCtx = withNode(ctx, current[i], position, size);
+      predCtx.node = node;
+      predCtx.position = position;
       let keep;
       if (existence) {
         keep = existsBoolean(predicate, predCtx, html);
@@ -320,9 +374,13 @@ function applyPredicates(nodes, predicates, purity, ctx, html) {
         const value = evaluate(predicate, predCtx);
         keep = typeof value === 'number' ? value === position : toBoolean(value);
       }
-      if (keep) kept.push(current[i]);
+      if (keep) {
+        if (kept !== null) kept.push(node);
+      } else if (kept === null) {
+        kept = current.slice(0, i); // first rejection: keep the surviving prefix
+      }
     }
-    current = kept;
+    if (kept !== null) current = kept;
   }
   return current;
 }

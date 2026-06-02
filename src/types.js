@@ -38,11 +38,15 @@ export class NodeSet {
 
   // The first node in document order, or null for the empty set.
   first(adapter) {
-    if (this.nodes.length === 0) return null;
-    if (this.sorted) return this.nodes[0];
-    let best = this.nodes[0];
-    for (let i = 1; i < this.nodes.length; i++) {
-      if (adapter.compareDocumentPosition(this.nodes[i], best) < 0) best = this.nodes[i];
+    const nodes = this.nodes;
+    if (nodes.length === 0) return null;
+    // A one-node set's first node is that node, whatever the `sorted` flag says —
+    // and this is the dominant case (`@id`, `string(.)`), so skip the min scan.
+    if (nodes.length === 1) return nodes[0];
+    if (this.sorted) return nodes[0];
+    let best = nodes[0];
+    for (let i = 1; i < nodes.length; i++) {
+      if (adapter.compareDocumentPosition(nodes[i], best) < 0) best = nodes[i];
     }
     return best;
   }

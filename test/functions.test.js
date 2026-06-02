@@ -46,6 +46,9 @@ test('count', () => {
 test('id', () => {
   assert.deepEqual(ids("id('x1')"), ['x1']);
   assert.deepEqual(ids("id('x1 x2')"), ['x1', 'x2']);
+  // Tokens split on any XPath whitespace run; leading/trailing/repeated
+  // whitespace yields no empty tokens.
+  assert.deepEqual(ids("id('  x1\t\r\n x2  ')"), ['x1', 'x2']);
   // Result is materialised in document order regardless of token order.
   assert.deepEqual(ids("id('x2 x1')"), ['x1', 'x2']);
   assert.deepEqual(ids("id('missing')"), []);
@@ -99,6 +102,12 @@ test('substring with rounding and infinities (REC §4.2 examples)', () => {
 test('string-length / normalize-space', () => {
   assert.equal(evalv("string-length('hello')"), 5);
   assert.equal(evalv("normalize-space('  a  b  c  ')"), 'a b c');
+  // Collapses every XPath whitespace kind (space/tab/CR/LF) and trims edges.
+  assert.equal(evalv("normalize-space('\t a\r\n\tb \n')"), 'a b');
+  assert.equal(evalv("normalize-space('   ')"), ''); // all whitespace -> empty
+  assert.equal(evalv("normalize-space('abc')"), 'abc'); // already normalized
+  // Non-XPath whitespace (NBSP) is NOT collapsed or trimmed (REC §3.7).
+  assert.equal(evalv("normalize-space('\u00A0a\u00A0')"), '\u00A0a\u00A0');
   // No-arg form uses the context node string-value.
   assert.equal(evalv('normalize-space()', fixture.documentElement.childNodes[3]), 'Hello World');
 });

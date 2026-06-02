@@ -21,7 +21,11 @@ const REL_TESTS = {
 export function compareEquality(op, a, b, adapter) {
   const test = EQ_TESTS[op];
 
-  // Both node-sets: existential over pairs, comparing string-values.
+  // Both node-sets: existential over pairs, comparing string-values. Extract
+  // each side's string-values once (b's into an array) so the comparison is
+  // O(|a|+|b|) string-value reads, not O(|a|·|b|) — this path is reached without
+  // the memoizing adapter (direct evaluate() use), where each read can walk a
+  // subtree.
   if (isNodeSet(a) && isNodeSet(b)) {
     const bStrings = b.nodes.map((n) => adapter.stringValue(n));
     for (const n of a.nodes) {

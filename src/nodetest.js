@@ -29,10 +29,19 @@ function asciiEqualsIgnoreCase(a, b) {
 }
 
 // ASCII-only lowercasing, used to build the case-folded key for an HTML
-// attribute lookup (§6: HTML attribute keys are lowercase).
+// attribute lookup (§6: HTML attribute keys are lowercase). Returns the input
+// unchanged (no allocation) when it has no ASCII uppercase — the common case for
+// Capybara attribute names like `type`, `id`, `for`.
 function asciiLower(s) {
-  let out = '';
-  for (let i = 0; i < s.length; i++) {
+  let i = 0;
+  while (i < s.length) {
+    const c = s.charCodeAt(i);
+    if (c >= 0x41 && c <= 0x5a) break;
+    i += 1;
+  }
+  if (i === s.length) return s;
+  let out = s.slice(0, i);
+  for (; i < s.length; i++) {
     const c = s.charCodeAt(i);
     out += c >= 0x41 && c <= 0x5a ? String.fromCharCode(c + 0x20) : s[i];
   }
@@ -78,12 +87,13 @@ export function matchesNodeTest(node, nodeTest, axis, adapter, resolver, html) {
   const principal = principalType(axis);
   if (type !== principal) return false;
 
-  const local = adapter.localName(node);
-  const ns = adapter.namespaceURI(node) ?? null;
-
   if (nodeTest.prefix == null) {
-    if (nodeTest.local === '*') return true; // any node of the principal type
+    // `*` matches any node of the principal type — no name/namespace reads needed
+    // (the hot `descendant::*` / `*` step over a large document).
+    if (nodeTest.local === '*') return true;
 
+    const ns = adapter.namespaceURI(node) ?? null;
+    const local = adapter.localName(node);
     if (html) {
       // HTML attributes are no-namespace and lowercased: ASCII case-insensitive.
       if (principal === ATTRIBUTE) {
@@ -105,8 +115,9 @@ export function matchesNodeTest(node, nodeTest, axis, adapter, resolver, html) {
   if (uri == null) {
     throw new XPathTypeError(`unresolved namespace prefix '${nodeTest.prefix}'`);
   }
+  const ns = adapter.namespaceURI(node) ?? null;
   if (nodeTest.local === '*') return ns === uri;
-  return ns === uri && local === nodeTest.local;
+  return ns === uri && adapter.localName(node) === nodeTest.local;
 }
 
 // Resolves a `@name` attribute name test to the matching attribute's string
@@ -128,10 +139,27 @@ export function attributeValue(node, nameTest, adapter, resolver, html) {
       throw new XPathTypeError(`unresolved namespace prefix '${nameTest.prefix}'`);
     }
   }
-  const local = html && nameTest.prefix == null ? asciiLower(nameTest.local) : nameTest.local;
+  // For an HTML document the requested unprefixed name is folded to lower case
+  // (§6). The fold depends only on the name test, so cache it (by AST node)
+  // rather than rebuilding the string per candidate node.
+  let local;
+  if (html && nameTest.prefix == null) {
+    local = htmlLocalCache.get(nameTest);
+    if (local === undefined) {
+      local = asciiLower(nameTest.local);
+      htmlLocalCache.set(nameTest, local);
+    }
+  } else {
+    local = nameTest.local;
+  }
   const value = adapter.getAttribute(node, namespaceURI, local);
   return value == null ? undefined : value;
 }
+
+// ASCII-lowercased form of an HTML attribute name test, memoized by name-test
+// AST node (a pure function of the immutable AST, read per candidate node). A
+// WeakMap keeps the parse tree itself unmutated; entries release with the AST.
+const htmlLocalCache = new WeakMap();
 
 // The document (root) node owning `node`, or `node` itself if it is the
 // document. Null for a detached node with no owner document.
