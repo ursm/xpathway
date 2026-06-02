@@ -1,4 +1,5 @@
 import { tokenize, T } from './lexer.js';
+import { optimize } from './optimize.js';
 import { XPathSyntaxError } from './errors.js';
 
 // Recursive-descent parser for XPath 1.0 (W3C REC §3, grammar productions
@@ -304,5 +305,8 @@ class Parser {
 }
 
 export function parse(expr) {
-  return new Parser(tokenize(expr)).parse();
+  // The parser produces the literal grammar tree; optimize() then applies
+  // REC-preserving normalizations (e.g. fusing `//`'s step pair into a single
+  // `descendant` step) once, before the AST is cached and replayed (§7).
+  return optimize(new Parser(tokenize(expr)).parse());
 }

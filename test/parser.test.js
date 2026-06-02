@@ -38,16 +38,26 @@ test('lone slash is the document root', () => {
   assert.deepEqual(parse('/'), { type: 'Path', root: { type: 'Root' }, steps: [] });
 });
 
-test('// desugars to descendant-or-self::node()', () => {
+test('// desugars to descendant-or-self::node() and then fuses into a descendant step', () => {
+  // `//` abbreviates `/descendant-or-self::node()/`; optimize() fuses that pair
+  // with the following `child::E` into a single `descendant::E` step (REC §2.5).
   assert.deepEqual(parse('//a'), {
     type: 'Path',
     root: { type: 'Root' },
-    steps: [dosStep(), nameStep('child', 'a')],
+    steps: [nameStep('descendant', 'a')],
   });
   assert.deepEqual(parse('a//b'), {
     type: 'Path',
     root: null,
-    steps: [nameStep('child', 'a'), dosStep(), nameStep('child', 'b')],
+    steps: [nameStep('child', 'a'), nameStep('descendant', 'b')],
+  });
+  // A positional predicate is not position-stable, so the pair is NOT fused:
+  // `//a[1]` selects each <a> that is the first <a>-child of its parent, which
+  // only the unfused two-step form expresses.
+  assert.deepEqual(parse('//a[1]'), {
+    type: 'Path',
+    root: { type: 'Root' },
+    steps: [dosStep(), nameStep('child', 'a', [{ type: 'Number', value: 1 }])],
   });
 });
 
